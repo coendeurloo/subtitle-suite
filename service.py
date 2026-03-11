@@ -26,6 +26,7 @@ else:
     p2 = False
 
 from resources.lib.dualsubs import mergesubs
+from resources.lib import smartsync
 
 __addon__ = xbmcaddon.Addon()
 __author__     = __addon__.getAddonInfo('author')
@@ -321,6 +322,12 @@ def _get_int_setting(setting_id, default_value, minimum_value, maximum_value):
 def _is_ai_translation_enabled():
   return __addon__.getSetting('enable_ai_translation') == 'true'
 
+def _is_smart_sync_enabled():
+  setting = __addon__.getSetting('enable_smart_sync')
+  if setting == '':
+    return True
+  return setting == 'true'
+
 def _get_openai_api_key():
   try:
     return __addon__.getSetting('openai_api_key').strip()
@@ -554,6 +561,393 @@ def _select_translation_source_subtitle(video_dir, fallback_dir=''):
   source_subtitle = candidates[selected]
   _log('translation source selected: %s' % (source_subtitle), LOG_INFO)
   return source_subtitle
+
+def _unique_paths(paths):
+  unique = []
+  seen = {}
+  for path in paths:
+    if not path:
+      continue
+    key = path.lower()
+    if key in seen:
+      continue
+    seen[key] = True
+    unique.append(path)
+  return unique
+
+def _safe_basename(path):
+  try:
+    return os.path.basename(path)
+  except:
+    return path
+
+def _load_subtitle_for_processing(subtitle_path):
+  pysubs2 = _load_pysubs2()
+  local_copy = _copy_subtitle_to_temp(subtitle_path)
+  encoding = _detect_text_encoding(local_copy)
+
+  try:
+    subtitle_data = pysubs2.load(local_copy, encoding=encoding)
+  except:
+    subtitle_data = pysubs2.load(local_copy)
+  return subtitle_data, local_copy
+
+def _save_subtitle_to_temp(subtitle_data):
+  temp_output = os.path.join(__temp__, '%s.srt' % (str(uuid.uuid4())))
+  subtitle_data.save(temp_output, encoding='utf-8', format_='srt')
+  return temp_output
+
+def _smart_sync_method_label(method_name):
+  if method_name == 'ai_anchor':
+    return __language__(33100)
+  return __language__(33083)
+
+def _select_smart_sync_target(subtitle1, subtitle2):
+  options = [
+    __language__(33091) % (_safe_basename(subtitle1)),
+    __language__(33092) % (_safe_basename(subtitle2)),
+  ]
+  selected = __msg_box__.select(__language__(33090), options)
+  if selected is None or selected < 0:
+    _log('smart sync target selection cancelled', LOG_INFO)
+    return None
+  if selected == 0:
+    return subtitle1
+  return subtitle2
+
+def _collect_smart_sync_reference_candidates(target_path, subtitle1, subtitle2, video_dir, start_dir):
+  selected_candidates = []
+  if subtitle1 and subtitle1.lower() != target_path.lower():
+    selected_candidates.append((__language__(33093) % (_safe_basename(subtitle1)), subtitle1))
+  if subtitle2 and subtitle2.lower() != target_path.lower():
+    selected_candidates.append((__language__(33093) % (_safe_basename(subtitle2)), subtitle2))
+
+  folder_candidates = []
+  for candidate_dir in _unique_paths([video_dir, start_dir]):
+    for path in _list_srt_files(candidate_dir):
+      if path.lower() == target_path.lower():
+        continue
+      folder_candidates.append((__language__(33094) % (_safe_basename(path)), path))
+
+  merged = []
+  for label, path in selected_candidates + folder_candidates:
+    merged.append((label, path))
+
+  deduped = []
+  seen = {}
+  for label, path in merged:
+    key = path.lower()
+    if key in seen:
+      continue
+    seen[key] = True
+    deduped.append((label, path))
+  return deduped
+
+def _select_smart_sync_reference(target_path, subtitle1, subtitle2, video_dir, start_dir):
+  candidates = _collect_smart_sync_reference_candidates(target_path, subtitle1, subtitle2, video_dir, start_dir)
+  if len(candidates) == 0:
+    _notify(__language__(33095), NOTIFY_WARNING)
+    _log('smart sync reference selection failed: no candidates', LOG_WARNING)
+    return None
+
+  labels = []
+  for label, _ in candidates:
+    labels.append(label)
+  selected = __msg_box__.select(__language__(33096), labels)
+  if selected is None or selected < 0:
+    _log('smart sync reference selection cancelled', LOG_INFO)
+    return None
+
+  reference_path = candidates[selected][1]
+  if reference_path.lower() == target_path.lower():
+    _notify(__language__(33097), NOTIFY_WARNING)
+    return None
+  return reference_path
+
+def _openai_find_smart_sync_anchors(reference_samples, target_samples, api_key, model, timeout_seconds):
+  user_prompt = (
+    'Match subtitle cues that represent the same spoken line.\n'
+    'Return JSON only using this exact format:\n'
+    '{"pairs":[{"target_id":12,"reference_id":33}]}\n'
+    'Rules:\n'
+    '- Use only ids from the provided lists.\n'
+    '- Return 6 to 24 high-confidence pairs.\n'
+    '- Keep pairs ordered by target timeline.\n'
+    '- Do not include explanations.\n\n'
+    'Reference cues JSON:\n%s\n\n'
+    'Target cues JSON:\n%s'
+  ) % (
+    json.dumps(reference_samples, ensure_ascii=False),
+    json.dumps(target_samples, ensure_ascii=False)
+  )
+
+  payload = {
+    'model': model,
+    'temperature': 0,
+    'messages': [
+      {
+        'role': 'system',
+        'content': 'You are an expert subtitle aligner. Return only valid JSON.'
+      },
+      {
+        'role': 'user',
+        'content': user_prompt
+      }
+    ]
+  }
+
+  request_data = _to_utf8_bytes(json.dumps(payload, ensure_ascii=False))
+  request = Request(OPENAI_CHAT_ENDPOINT, data=request_data)
+  request.add_header('Content-Type', 'application/json')
+  request.add_header('Authorization', 'Bearer %s' % (api_key))
+
+  try:
+    response = urlopen(request, timeout=timeout_seconds)
+    raw_response = response.read()
+  except HTTPError as exc:
+    body = ''
+    try:
+      body = _as_text(exc.read())
+    except:
+      pass
+    _log('smart sync ai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
+    raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
+  except URLError as exc:
+    _log('smart sync ai network error: %s' % (exc), LOG_ERROR)
+    raise RuntimeError('OpenAI request failed (network error).')
+  except Exception as exc:
+    _log('smart sync ai request unexpected error: %s' % (exc), LOG_ERROR)
+    raise RuntimeError('OpenAI request failed.')
+
+  try:
+    response_payload = json.loads(_as_text(raw_response))
+  except Exception as exc:
+    _log('smart sync ai response parse failed: %s' % (exc), LOG_ERROR)
+    raise RuntimeError('OpenAI returned invalid JSON.')
+
+  choices = response_payload.get('choices') or []
+  if len(choices) == 0:
+    raise RuntimeError('OpenAI returned no choices.')
+
+  message = choices[0].get('message') or {}
+  message_content = message.get('content')
+  try:
+    parsed = _extract_json_payload(message_content)
+  except Exception as exc:
+    _log('smart sync ai payload parse failed: %s content=%s' % (exc, _as_text(message_content)[:200]), LOG_ERROR)
+    raise RuntimeError('OpenAI returned an invalid anchor payload.')
+
+  pairs = parsed.get('pairs')
+  if not isinstance(pairs, list):
+    raise RuntimeError('OpenAI response is missing pairs.')
+
+  normalized_pairs = []
+  for pair in pairs:
+    if not isinstance(pair, dict):
+      continue
+    try:
+      normalized_pairs.append({
+        'target_id': int(pair.get('target_id')),
+        'reference_id': int(pair.get('reference_id')),
+      })
+    except:
+      continue
+
+  if len(normalized_pairs) == 0:
+    raise RuntimeError(__language__(33106))
+  return normalized_pairs
+
+def _run_smart_sync_local(reference_path, target_path):
+  reference_subs = None
+  target_subs = None
+  reference_local = ''
+  target_local = ''
+  try:
+    reference_subs, reference_local = _load_subtitle_for_processing(reference_path)
+    target_subs, target_local = _load_subtitle_for_processing(target_path)
+    return smartsync.sync_local(reference_subs, target_subs)
+  finally:
+    if reference_local:
+      xbmcvfs.delete(reference_local)
+    if target_local:
+      xbmcvfs.delete(target_local)
+
+def _run_smart_sync_ai(reference_path, target_path):
+  api_key = _get_openai_api_key()
+  if not api_key:
+    _notify(__language__(33104), NOTIFY_WARNING)
+    return None
+
+  consent_message = __language__(33101)
+  if not __msg_box__.yesno(__scriptname__, consent_message):
+    _log('smart sync ai fallback cancelled by user', LOG_INFO)
+    return None
+
+  reference_subs = None
+  target_subs = None
+  reference_local = ''
+  target_local = ''
+  try:
+    reference_subs, reference_local = _load_subtitle_for_processing(reference_path)
+    target_subs, target_local = _load_subtitle_for_processing(target_path)
+
+    reference_samples = smartsync.build_ai_samples(reference_subs, max_items=70)
+    target_samples = smartsync.build_ai_samples(target_subs, max_items=70)
+    if len(reference_samples) == 0 or len(target_samples) == 0:
+      raise RuntimeError(__language__(33103))
+
+    anchors = _openai_find_smart_sync_anchors(
+      reference_samples,
+      target_samples,
+      api_key,
+      _get_openai_model(),
+      _get_translation_timeout_seconds()
+    )
+    ai_result = smartsync.sync_from_anchor_pairs(reference_subs, target_subs, anchors)
+    _log('smart sync ai fallback succeeded: anchors=%d confidence=%.3f' % (len(anchors), ai_result.get('confidence', 0.0)), LOG_INFO)
+    return ai_result
+  finally:
+    if reference_local:
+      xbmcvfs.delete(reference_local)
+    if target_local:
+      xbmcvfs.delete(target_local)
+
+def _apply_synced_subtitle_to_target(target_path, synced_subs):
+  synced_temp = _save_subtitle_to_temp(synced_subs)
+  backup_path = '%s.bak' % (target_path)
+
+  try:
+    if xbmcvfs.exists(backup_path):
+      xbmcvfs.delete(backup_path)
+    if not xbmcvfs.copy(target_path, backup_path):
+      raise RuntimeError('backup copy failed')
+
+    if not xbmcvfs.copy(synced_temp, target_path):
+      try:
+        if not xbmcvfs.exists(target_path):
+          xbmcvfs.copy(backup_path, target_path)
+      except:
+        pass
+      raise RuntimeError('target write failed')
+
+    xbmcvfs.delete(synced_temp)
+    return {
+      'play_path': target_path,
+      'persisted': True,
+      'temp_path': '',
+      'backup_path': backup_path,
+    }
+  except Exception as exc:
+    _log('smart sync persist failed for %s (%s)' % (target_path, exc), LOG_WARNING)
+    return {
+      'play_path': synced_temp,
+      'persisted': False,
+      'temp_path': synced_temp,
+      'backup_path': backup_path,
+    }
+
+def _smart_sync_confidence_percent(sync_result):
+  confidence = sync_result.get('confidence', 0.0)
+  if confidence < 0:
+    confidence = 0
+  if confidence > 1:
+    confidence = 1
+  return int(round(confidence * 100.0))
+
+def _maybe_run_smart_sync(subtitle1, subtitle2, video_dir, start_dir):
+  if not _is_smart_sync_enabled():
+    _log('smart sync disabled in settings', LOG_DEBUG)
+    return subtitle1, subtitle2, []
+
+  if subtitle1 is None or subtitle2 is None:
+    return subtitle1, subtitle2, []
+
+  first_subs = None
+  second_subs = None
+  first_local = ''
+  second_local = ''
+  try:
+    first_subs, first_local = _load_subtitle_for_processing(subtitle1)
+    second_subs, second_local = _load_subtitle_for_processing(subtitle2)
+    mismatch = smartsync.assess_pair(first_subs, second_subs)
+  except Exception as exc:
+    _log('smart sync mismatch detection failed: %s' % (exc), LOG_WARNING)
+    return subtitle1, subtitle2, []
+  finally:
+    if first_local:
+      xbmcvfs.delete(first_local)
+    if second_local:
+      xbmcvfs.delete(second_local)
+
+  if not mismatch.get('likely_mismatch'):
+    _log('smart sync mismatch not detected: median=%s offset=%s' % (mismatch.get('raw_median_error_ms'), mismatch.get('estimated_global_offset_ms')), LOG_DEBUG)
+    return subtitle1, subtitle2, []
+
+  start_message = __language__(33098) % (mismatch.get('raw_median_error_ms', 0), mismatch.get('estimated_global_offset_ms', 0))
+  selected_action = __msg_box__.select(start_message, [__language__(33084), __language__(33085)])
+  if selected_action != 1:
+    _log('smart sync skipped by user after mismatch prompt', LOG_INFO)
+    return subtitle1, subtitle2, []
+
+  target_path = _select_smart_sync_target(subtitle1, subtitle2)
+  if target_path is None:
+    return subtitle1, subtitle2, []
+  reference_path = _select_smart_sync_reference(target_path, subtitle1, subtitle2, video_dir, start_dir)
+  if reference_path is None:
+    return subtitle1, subtitle2, []
+
+  try:
+    local_result = _run_smart_sync_local(reference_path, target_path)
+  except Exception as exc:
+    _log('smart sync local stage failed: %s' % (exc), LOG_WARNING)
+    _notify(__language__(33109), NOTIFY_WARNING)
+    return subtitle1, subtitle2, []
+
+  _notify(__language__(33107) % (_smart_sync_confidence_percent(local_result), local_result.get('median_error_ms', 0)), NOTIFY_INFO)
+
+  chosen_result = local_result
+  if local_result.get('low_confidence'):
+    low_conf_title = __language__(33099) % (_smart_sync_confidence_percent(local_result), local_result.get('median_error_ms', 0))
+    low_conf_choice = __msg_box__.select(low_conf_title, [__language__(33110), __language__(33111), __language__(33112)])
+    if low_conf_choice == 2 or low_conf_choice < 0:
+      _log('smart sync skipped due low confidence user choice', LOG_INFO)
+      return subtitle1, subtitle2, []
+
+    if low_conf_choice == 1:
+      ai_result = None
+      try:
+        ai_result = _run_smart_sync_ai(reference_path, target_path)
+      except Exception as exc:
+        _log('smart sync ai stage failed: %s' % (exc), LOG_WARNING)
+        ai_result = None
+
+      if ai_result is not None:
+        chosen_result = ai_result
+        _notify(__language__(33102), NOTIFY_INFO)
+      else:
+        fallback_choice = __msg_box__.select(__language__(33105), [__language__(33110), __language__(33112)])
+        if fallback_choice != 0:
+          return subtitle1, subtitle2, []
+
+  sync_apply = _apply_synced_subtitle_to_target(target_path, chosen_result['synced_subs'])
+
+  updated_subtitle1 = subtitle1
+  updated_subtitle2 = subtitle2
+  if target_path.lower() == subtitle1.lower():
+    updated_subtitle1 = sync_apply['play_path']
+  elif target_path.lower() == subtitle2.lower():
+    updated_subtitle2 = sync_apply['play_path']
+
+  method_label = _smart_sync_method_label(chosen_result.get('method', 'local'))
+  if sync_apply['persisted']:
+    _notify(__language__(33108) % (method_label), NOTIFY_INFO)
+  else:
+    _notify(__language__(33113), NOTIFY_WARNING)
+
+  temp_paths = []
+  if sync_apply.get('temp_path'):
+    temp_paths.append(sync_apply['temp_path'])
+  return updated_subtitle1, updated_subtitle2, temp_paths
 
 def _load_pysubs2():
   try:
@@ -964,6 +1358,7 @@ def _run_dual_subtitle_flow():
   subtitle2 = None
   subtitle1_dir = ''
   force_manual_both = False
+  smart_sync_temp_files = []
 
   automatch = _auto_match_subtitles(video_dir, video_basename)
   _log('dual flow start: video_dir=%s video_basename=%s start_dir=%s automatch_mode=%s' % (video_dir, video_basename, start_dir, automatch['mode']), LOG_DEBUG)
@@ -1064,6 +1459,10 @@ def _run_dual_subtitle_flow():
   if subtitle1 is None:
     return
 
+  subtitle1, subtitle2, smart_sync_temp_files = _maybe_run_smart_sync(subtitle1, subtitle2, video_dir, start_dir)
+  if subtitle1 is None:
+    return
+
   if not subtitle1_dir:
     subtitle1_dir = os.path.dirname(subtitle1)
   _remember_last_used_dir(subtitle1_dir)
@@ -1080,6 +1479,13 @@ def _run_dual_subtitle_flow():
     _notify(__language__(33042), NOTIFY_ERROR)
     __msg_box__.ok(__language__(32531), str(exc))
     return
+  finally:
+    for temp_sync_path in smart_sync_temp_files:
+      try:
+        if temp_sync_path and temp_sync_path.startswith(__temp__):
+          xbmcvfs.delete(temp_sync_path)
+      except:
+        pass
 
   Download(finalfile)
   if len(subs) > 1:

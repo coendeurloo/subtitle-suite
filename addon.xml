@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.dualsubtitles"
        name="Dual Subtitles"
-       version="2.2.0"
+       version="2.3.0"
        provider-name="coendeurloo">
   <requires>
       <import addon="script.module.pysubs2" version="0.1.0"/>
@@ -17,9 +17,17 @@ The addon opens from the subtitle search screen and supports:
 - Smart start folder selection (current video directory first)
 - Auto matching for two preferred subtitle languages
 - Manual fallback with fewer navigation steps
+- Smart Sync for large subtitle timing drift
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
 	<news>
+beta 0.4 (2026-03-11)
+- Added Smart Sync for large subtitle drift (separate from Auto Shift)
+- Smart Sync now detects likely mismatch and asks whether to run sync
+- Added manual target/reference selection (reference can be any .srt in video folder)
+- Added low-confidence flow with optional AI anchor fallback
+- Synced target subtitle is saved with backup at *.srt.bak; temporary playback fallback is used if writing fails
+
 v2.2.0 (2026-03-11)
 - Added a popup choice when preferred subtitles are missing: translate or continue without translation
 - Added source subtitle picker for translation (choose any .srt in the video folder)

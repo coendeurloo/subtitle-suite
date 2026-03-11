@@ -224,6 +224,93 @@ msgid "Preferred subtitles missing"
 msgctxt "#33080"
 msgid "AI translation completed for %s and %s."
 
+msgctxt "#33081"
+msgid "Enable Smart Sync (large timing differences)"
+
+msgctxt "#33082"
+msgid "Smart Sync is separate from Auto Shift.\nIt detects large subtitle drift and offers a guided sync flow."
+
+msgctxt "#33083"
+msgid "Local Smart Sync"
+
+msgctxt "#33084"
+msgid "Continue without Smart Sync"
+
+msgctxt "#33085"
+msgid "Run Smart Sync..."
+
+msgctxt "#33090"
+msgid "Choose subtitle to sync"
+
+msgctxt "#33091"
+msgid "Sync first subtitle: %s"
+
+msgctxt "#33092"
+msgid "Sync second subtitle: %s"
+
+msgctxt "#33093"
+msgid "Selected subtitle: %s"
+
+msgctxt "#33094"
+msgid "Video folder subtitle: %s"
+
+msgctxt "#33095"
+msgid "No reference .srt files available for Smart Sync."
+
+msgctxt "#33096"
+msgid "Choose reference subtitle"
+
+msgctxt "#33097"
+msgid "Reference and target cannot be the same subtitle file."
+
+msgctxt "#33098"
+msgid "Smart Sync detected a likely mismatch.\nMedian timing error: %d ms\nEstimated offset: %d ms"
+
+msgctxt "#33099"
+msgid "Low Smart Sync confidence (%d%%, median error %d ms)."
+
+msgctxt "#33100"
+msgid "AI Anchor Sync"
+
+msgctxt "#33101"
+msgid "Try AI fallback for better sync?\nThis sends subtitle text to OpenAI."
+
+msgctxt "#33102"
+msgid "Smart Sync AI fallback improved alignment."
+
+msgctxt "#33103"
+msgid "Not enough subtitle lines for AI anchor matching."
+
+msgctxt "#33104"
+msgid "Smart Sync AI fallback needs an OpenAI API key."
+
+msgctxt "#33105"
+msgid "AI fallback did not produce a usable sync result."
+
+msgctxt "#33106"
+msgid "AI fallback returned no valid anchors."
+
+msgctxt "#33107"
+msgid "Smart Sync confidence: %d%% (median error %d ms)."
+
+msgctxt "#33108"
+msgid "Smart Sync applied (%s)."
+
+msgctxt "#33109"
+msgid "Smart Sync local stage failed."
+
+msgctxt "#33110"
+msgid "Apply local sync result"
+
+msgctxt "#33111"
+msgid "Try AI fallback"
+
+msgctxt "#33112"
+msgid "Skip Smart Sync"
+
+msgctxt "#33113"
+msgid "Smart Sync could not write target file. Using temporary synced subtitle for this playback."
+
 msgctxt "#32507"
 msgid "Bottom-Top"
 

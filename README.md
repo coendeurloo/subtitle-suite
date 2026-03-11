@@ -27,6 +27,12 @@ Dual subtitle addon for Kodi, focused on speed and fewer clicks.
   - you can choose a source `.srt` from the current video folder before translation starts
   - if both preferred languages are missing, both can be translated from a single source subtitle
   - translated file is written next to the source subtitle (for example `Movie-ru.srt`)
+- Smart Sync for large timing drift:
+  - detects likely mismatch between selected subtitles
+  - asks whether to run Smart Sync
+  - lets you pick sync target and reference subtitle manually
+  - reference can also be a non-preferred language `.srt` from the video folder
+  - writes backup as `*.srt.bak` before replacing target subtitle
 - Supports `.srt` and `.zip` (zip must contain `.srt`).
 - Keeps advanced dual-sub rendering options:
   - top/bottom (or left-right) layout
@@ -61,7 +67,7 @@ Dual subtitle addon for Kodi, focused on speed and fewer clicks.
 
 ### AI Translation
 
-- `Auto-translate missing preferred subtitle`
+- `Offer AI translation when preferred subtitles are missing`
 - `OpenAI API Key`
 - `OpenAI Model`
 - `Lines per translation request`
@@ -84,6 +90,12 @@ Dual subtitle addon for Kodi, focused on speed and fewer clicks.
 
 ### Timing and Sync
 
+- `Enable Smart Sync (large timing differences)`
+- Smart Sync behavior:
+  - runs only in dual-subtitle mode
+  - uses local timing alignment first
+  - if confidence is low, lets you apply local result, try AI fallback, or skip
+  - AI fallback is optional and asks consent before sending subtitle text
 - `Minimal Time (milliseconds) Subtitles on Screen`
 - `Auto Shift`
 - `Time Difference Threshold (milliseconds)`

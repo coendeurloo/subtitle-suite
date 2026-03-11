@@ -38,6 +38,9 @@
         <setting label="32527" type="text" enable="false"/>
         <setting label="32528" type="text" enable="false"/>
         <setting type="lsep"/>
+        <setting id="enable_smart_sync" label="33081" type="bool" default="true" subsetting="true"/>
+        <setting label="33082" type="text" enable="false"/>
+        <setting type="lsep"/>
         <setting id="autoShft" label="32520" type="bool" default="true"/>
         <setting id="autoShftAmt" label="32521" type="number" default="500" subsetting="true" enable="eq(-1,true)"/>
         <setting label="32522" type="text" enable="false"/>
