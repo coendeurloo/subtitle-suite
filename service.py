@@ -691,7 +691,28 @@ def _get_dualsubtitles_work_dir_for_path(path):
     xbmcvfs.mkdirs(work_dir)
   except:
     pass
+  _set_writable_permissions_in_dir(work_dir)
   return work_dir
+
+def _set_writable_permissions(path, is_directory=False):
+  if not path:
+    return
+  try:
+    mode = int('777', 8) if is_directory else int('666', 8)
+    os.chmod(path, mode)
+  except:
+    pass
+
+def _set_writable_permissions_in_dir(directory_path):
+  if not directory_path:
+    return
+  try:
+    _set_writable_permissions(directory_path, is_directory=True)
+    _, files = xbmcvfs.listdir(directory_path)
+    for file_name in files:
+      _set_writable_permissions(os.path.join(directory_path, file_name), is_directory=False)
+  except:
+    pass
 
 def _dualsubs_work_temp_path(target_path, extension):
   work_dir = _get_dualsubtitles_work_dir_for_path(target_path)
@@ -716,6 +737,7 @@ def _move_file_to_dualsubtitles_folder(path):
     xbmcvfs.delete(destination)
   if not xbmcvfs.copy(path, destination):
     return False
+  _set_writable_permissions(destination, is_directory=False)
   xbmcvfs.delete(path)
   return True
 
@@ -1158,6 +1180,7 @@ def _apply_synced_subtitle_to_target(target_path, synced_subs):
   work_synced_temp = _dualsubs_work_temp_path(target_path, '.srt')
   if xbmcvfs.copy(local_synced_temp, work_synced_temp):
     synced_temp = work_synced_temp
+    _set_writable_permissions(work_synced_temp, is_directory=False)
     xbmcvfs.delete(local_synced_temp)
   backup_path = _dualsubs_backup_path(target_path)
 
@@ -1166,6 +1189,7 @@ def _apply_synced_subtitle_to_target(target_path, synced_subs):
       xbmcvfs.delete(backup_path)
     if not xbmcvfs.copy(target_path, backup_path):
       raise RuntimeError('backup copy failed')
+    _set_writable_permissions(backup_path, is_directory=False)
 
     if not xbmcvfs.copy(synced_temp, target_path):
       try:
@@ -1814,6 +1838,7 @@ def _prepare_and_merge_subtitles(subs):
       xbmcvfs.delete(merged_output)
 
     if xbmcvfs.copy(merged_temp, merged_output):
+      _set_writable_permissions(merged_output, is_directory=False)
       xbmcvfs.delete(merged_temp)
       _log('merged subtitles: count=%d output=%s' % (len(subs), merged_output), LOG_INFO)
       return merged_output
