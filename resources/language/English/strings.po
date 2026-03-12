@@ -371,6 +371,18 @@ msgid "Writing synced subtitle..."
 msgctxt "#33140"
 msgid "Smart Sync complete."
 
+msgctxt "#33141"
+msgid "Sync the other selected subtitle too with the same reference?"
+
+msgctxt "#33142"
+msgid "Smart Sync applied to two subtitles."
+
+msgctxt "#33143"
+msgid "Sync a second subtitle with the same reference?"
+
+msgctxt "#33144"
+msgid "Choose second subtitle to sync"
+
 msgctxt "#32507"
 msgid "Bottom-Top"
 

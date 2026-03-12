@@ -872,6 +872,14 @@ def _select_smart_sync_target_for_dual(reference_path, subtitle1, subtitle2):
     return None
   return candidates[selected][1]
 
+def _collect_dual_sync_target_paths(reference_path, subtitle1, subtitle2):
+  targets = []
+  if subtitle1 and subtitle1.lower() != reference_path.lower():
+    targets.append(subtitle1)
+  if subtitle2 and subtitle2.lower() != reference_path.lower():
+    targets.append(subtitle2)
+  return targets
+
 def _openai_find_smart_sync_anchors(reference_samples, target_samples, api_key, model, timeout_seconds):
   user_prompt = (
     'Match subtitle cues that represent the same spoken line.\n'
@@ -1173,22 +1181,48 @@ def _maybe_run_smart_sync(subtitle1, subtitle2, video_dir, start_dir):
   reference_path = _select_smart_sync_reference(subtitle1, subtitle2, video_dir, start_dir)
   if reference_path is None:
     return subtitle1, subtitle2, []
+  available_targets = _collect_dual_sync_target_paths(reference_path, subtitle1, subtitle2)
+  if len(available_targets) == 0:
+    return subtitle1, subtitle2, []
+
   target_path = _select_smart_sync_target_for_dual(reference_path, subtitle1, subtitle2)
   if target_path is None:
     return subtitle1, subtitle2, []
 
-  sync_apply = _run_smart_sync_pipeline(reference_path, target_path)
-  if not sync_apply.get('applied'):
-    return subtitle1, subtitle2, []
+  target_paths = [target_path]
+  if len(available_targets) > 1:
+    also_sync_other = __msg_box__.yesno(__scriptname__, __language__(33141))
+    if also_sync_other:
+      for other_path in available_targets:
+        if other_path.lower() != target_path.lower():
+          target_paths.append(other_path)
 
   updated_subtitle1 = subtitle1
   updated_subtitle2 = subtitle2
-  if target_path.lower() == subtitle1.lower():
-    updated_subtitle1 = sync_apply.get('play_path')
-  elif target_path.lower() == subtitle2.lower():
-    updated_subtitle2 = sync_apply.get('play_path')
+  all_temp_paths = []
+  applied_count = 0
 
-  return updated_subtitle1, updated_subtitle2, sync_apply.get('temp_paths', [])
+  for path_to_sync in target_paths:
+    sync_apply = _run_smart_sync_pipeline(reference_path, path_to_sync)
+    if not sync_apply.get('applied'):
+      continue
+
+    applied_count += 1
+    if path_to_sync.lower() == subtitle1.lower():
+      updated_subtitle1 = sync_apply.get('play_path')
+    elif path_to_sync.lower() == subtitle2.lower():
+      updated_subtitle2 = sync_apply.get('play_path')
+
+    for temp_path in sync_apply.get('temp_paths', []):
+      all_temp_paths.append(temp_path)
+
+  if applied_count == 0:
+    return subtitle1, subtitle2, []
+
+  if applied_count > 1:
+    _notify(__language__(33142), NOTIFY_INFO)
+
+  return updated_subtitle1, updated_subtitle2, all_temp_paths
 
 def _run_manual_smart_sync_action():
   if not _is_smart_sync_enabled():
@@ -1221,6 +1255,26 @@ def _run_manual_smart_sync_action():
     return
 
   Download(sync_apply.get('play_path'))
+
+  if not __msg_box__.yesno(__scriptname__, __language__(33143)):
+    return
+
+  second_target_path, _ = _browse_for_subtitle(__language__(33144), reference_dir)
+  if second_target_path is None:
+    return
+  if not second_target_path.lower().endswith('.srt') or second_target_path.startswith(__temp__):
+    _notify(__language__(33123), NOTIFY_WARNING)
+    return
+  if second_target_path.lower() == reference_path.lower() or second_target_path.lower() == target_path.lower():
+    _notify(__language__(33097), NOTIFY_WARNING)
+    return
+
+  second_sync_apply = _run_smart_sync_pipeline(reference_path, second_target_path)
+  if not second_sync_apply.get('applied'):
+    return
+
+  _notify(__language__(33142), NOTIFY_INFO)
+  Download(second_sync_apply.get('play_path'))
 
 def _load_pysubs2():
   try:
