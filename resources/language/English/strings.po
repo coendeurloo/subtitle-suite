@@ -344,6 +344,12 @@ msgid "Enable AI translation in settings to use manual translation."
 msgctxt "#33131"
 msgid "Enable Smart Sync in settings to use manual Smart Sync."
 
+msgctxt "#33132"
+msgid "Browse other folder..."
+
+msgctxt "#33133"
+msgid "Cancel"
+
 msgctxt "#32507"
 msgid "Bottom-Top"
 

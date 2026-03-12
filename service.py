@@ -36,6 +36,7 @@ __version__    = __addon__.getAddonInfo('version')
 __language__   = __addon__.getLocalizedString
 
 LANGUAGE_CODE_REGEX = re.compile(r'\(([a-z]{2})\)\s*$', re.IGNORECASE)
+LANGUAGE_TOKEN_REGEX = re.compile(r'[._\-\s\[\]\(\)]+')
 NOTIFY_INFO = getattr(xbmcgui, 'NOTIFICATION_INFO', '')
 NOTIFY_WARNING = getattr(xbmcgui, 'NOTIFICATION_WARNING', '')
 NOTIFY_ERROR = getattr(xbmcgui, 'NOTIFICATION_ERROR', '')
@@ -45,6 +46,12 @@ LOG_WARNING = getattr(xbmc, 'LOGWARNING', 2)
 LOG_ERROR = getattr(xbmc, 'LOGERROR', 4)
 OPENAI_CHAT_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 FENCED_JSON_REGEX = re.compile(r'^```(?:json)?\s*(.*?)\s*```$', re.DOTALL)
+KNOWN_SUBTITLE_LANGUAGE_CODES = set([
+  'af', 'sq', 'ar', 'hy', 'az', 'eu', 'be', 'bn', 'bs', 'bg', 'ca', 'zh', 'hr', 'cs', 'da',
+  'nl', 'en', 'et', 'fi', 'fr', 'gl', 'ka', 'de', 'el', 'he', 'hi', 'hu', 'is', 'id', 'ga',
+  'it', 'ja', 'kk', 'ko', 'lv', 'lt', 'mk', 'ms', 'no', 'fa', 'pl', 'pt', 'ro', 'ru', 'sr',
+  'sk', 'sl', 'es', 'sv', 'ta', 'th', 'tr', 'uk', 'ur', 'vi', 'cy'
+])
 
 try:
     translatePath = xbmcvfs.translatePath
@@ -538,6 +545,124 @@ def _list_srt_files(folder_path):
 
   candidates.sort(key=lambda item: os.path.basename(item).lower())
   return candidates
+
+def _build_compact_display_name(filename, max_length=72, tail_length=28):
+  name = _as_text(filename)
+  if len(name) <= max_length:
+    return name
+
+  if tail_length < 10:
+    tail_length = 10
+  head_length = max_length - tail_length - 3
+  if head_length < 10:
+    head_length = 10
+    tail_length = max_length - head_length - 3
+
+  return '%s...%s' % (name[:head_length], name[-tail_length:])
+
+def _detect_language_from_filename(path):
+  filename = os.path.basename(path)
+  base = os.path.splitext(filename)[0].lower()
+  tokens = LANGUAGE_TOKEN_REGEX.split(base)
+
+  preferred_codes = [
+    _parse_language_code('preferred_language_1'),
+    _parse_language_code('preferred_language_2'),
+  ]
+
+  for token in reversed(tokens):
+    if len(token) != 2:
+      continue
+    if token in preferred_codes:
+      return token
+    if token in KNOWN_SUBTITLE_LANGUAGE_CODES:
+      return token
+  return ''
+
+def _detect_language_from_content(path):
+  max_read = 12288
+  raw = None
+  file_handle = None
+  try:
+    file_handle = xbmcvfs.File(path)
+    raw = file_handle.read(max_read)
+  except:
+    raw = None
+  finally:
+    try:
+      if file_handle:
+        file_handle.close()
+    except:
+      pass
+
+  text = _as_text(raw).lower()
+  if not text:
+    return 'unk'
+
+  script_scores = {
+    'ru': 0,
+    'ar': 0,
+    'zh': 0,
+    'ja': 0,
+    'ko': 0,
+  }
+  for character in text:
+    codepoint = ord(character)
+    if 0x0400 <= codepoint <= 0x04FF:
+      script_scores['ru'] += 1
+    elif 0x0600 <= codepoint <= 0x06FF:
+      script_scores['ar'] += 1
+    elif 0x4E00 <= codepoint <= 0x9FFF:
+      script_scores['zh'] += 1
+    elif (0x3040 <= codepoint <= 0x30FF) or (0x31F0 <= codepoint <= 0x31FF):
+      script_scores['ja'] += 1
+    elif 0xAC00 <= codepoint <= 0xD7AF:
+      script_scores['ko'] += 1
+
+  best_script = max(script_scores, key=script_scores.get)
+  if script_scores[best_script] >= 6:
+    return best_script
+
+  words = re.findall(r"[a-z']+", text)
+  if len(words) == 0:
+    return 'unk'
+
+  indicators = {
+    'en': set(['the', 'and', 'you', 'is', 'are', 'what', 'this', 'that', 'with']),
+    'nl': set(['de', 'het', 'een', 'en', 'ik', 'je', 'niet', 'dat', 'van']),
+    'fr': set(['le', 'la', 'les', 'et', 'je', 'pas', 'vous', 'est', 'une']),
+    'es': set(['el', 'la', 'los', 'las', 'y', 'que', 'de', 'no', 'una']),
+    'de': set(['der', 'die', 'das', 'und', 'ich', 'nicht', 'ist', 'ein', 'mit']),
+    'it': set(['il', 'la', 'e', 'che', 'non', 'una', 'per', 'con', 'sono']),
+    'pt': set(['o', 'a', 'os', 'as', 'e', 'que', 'de', 'não', 'uma']),
+  }
+
+  language_scores = {}
+  for language_code, marker_words in indicators.items():
+    score = 0
+    for word in words:
+      if word in marker_words:
+        score += 1
+    language_scores[language_code] = score
+
+  best_language = max(language_scores, key=language_scores.get)
+  if language_scores[best_language] >= 3:
+    return best_language
+  return 'unk'
+
+def _build_subtitle_prepicker_entries(folder_path):
+  entries = []
+  for path in _list_srt_files(folder_path):
+    language_code = _detect_language_from_filename(path)
+    if not language_code:
+      language_code = _detect_language_from_content(path)
+    if not language_code:
+      language_code = 'unk'
+
+    display_name = _build_compact_display_name(os.path.basename(path))
+    label = '[%s] %s' % (language_code.upper(), display_name)
+    entries.append((label, path))
+  return entries
 
 def _select_translation_source_subtitle(video_dir, fallback_dir=''):
   source_dir = video_dir
@@ -1424,7 +1549,29 @@ def _browse_for_subtitle(title, browse_dir):
   if not _is_usable_browse_dir(browse_dir):
     browse_dir = ''
 
+  show_prepicker = True
   while True:
+    if show_prepicker and _is_usable_browse_dir(browse_dir):
+      prepicker_entries = _build_subtitle_prepicker_entries(browse_dir)
+      if len(prepicker_entries) > 0:
+        options = []
+        for label, _ in prepicker_entries:
+          options.append(label)
+        options.append(__language__(33132))
+        options.append(__language__(33133))
+
+        selected = __msg_box__.select(title, options)
+        if selected is None or selected < 0 or selected == len(options) - 1:
+          _log('subtitle pre-picker cancelled: %s' % (title), LOG_DEBUG)
+          return None, browse_dir
+
+        if selected < len(prepicker_entries):
+          subtitle_path = prepicker_entries[selected][1]
+          _log('subtitle selected from pre-picker: %s' % (subtitle_path), LOG_DEBUG)
+          return subtitle_path, os.path.dirname(subtitle_path)
+
+        show_prepicker = False
+
     subtitlefile = __msg_box__.browse(1, title, "video", ".zip|.srt", False, False, browse_dir, False)
     if subtitlefile is None or subtitlefile == '' or subtitlefile == browse_dir:
       return None, browse_dir
@@ -1434,6 +1581,7 @@ def _browse_for_subtitle(title, browse_dir):
       extracted_file = unzip(subtitlefile, [ ".srt" ])
       if extracted_file is None:
         browse_dir = selected_dir
+        show_prepicker = True
         continue
       return extracted_file, selected_dir
 
