@@ -1,4 +1,4 @@
-# Dual Subtitles for Kodi - service.subtitles.dualsubtitles
+# Dual Subtitles - SmartSync - AI Translate
 
 Dual subtitle addon for Kodi, focused on speed and fewer clicks.
 
