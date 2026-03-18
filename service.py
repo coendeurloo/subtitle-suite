@@ -3090,6 +3090,52 @@ def _notify_download_provider_warning_once(provider_name, message):
   DOWNLOAD_PROVIDER_WARNING_SHOWN[key] = True
   _notify(message, NOTIFY_WARNING, timeout=5000)
 
+def _format_download_provider_user_message(provider, exc, auth_error=False):
+  provider_name = _as_text(getattr(provider, 'display_name', getattr(provider, 'name', 'provider'))).strip() or 'Provider'
+  provider_key = _as_text(getattr(provider, 'name', provider_name)).lower().strip()
+  error_text = _as_text(exc).strip()
+  lowered = error_text.lower()
+
+  if provider_key == 'opensubtitles':
+    if auth_error:
+      if 'incomplete' in lowered or 'missing' in lowered:
+        return 'OpenSubtitles setup is incomplete. Enter username, password, and API key in Subtitle Suite settings.'
+      return 'OpenSubtitles login failed. Use your OpenSubtitles username (not email), password, and API key.'
+    if 'download limit' in lowered or 'no downloads left' in lowered:
+      return 'OpenSubtitles download limit reached for today.'
+    if '(429)' in lowered or 'too many requests' in lowered:
+      return 'OpenSubtitles is temporarily rate limited. Please try again in a bit.'
+    if '(503)' in lowered or 'service unavailable' in lowered:
+      return 'OpenSubtitles is temporarily unavailable. Please try again in a bit.'
+    if 'network error' in lowered:
+      return 'OpenSubtitles network error. Check your connection and try again.'
+    return 'OpenSubtitles request failed. Please check your credentials and try again.'
+
+  if provider_key == 'subdl':
+    if auth_error:
+      return 'SubDL setup is incomplete. Enter a valid SubDL API key in Subtitle Suite settings.'
+    if 'network error' in lowered:
+      return 'SubDL network error. Check your connection and try again.'
+    return '%s request failed.' % (provider_name)
+
+  if provider_key == 'podnadpisi':
+    if 'too-many-requests' in lowered or '(429)' in lowered:
+      return 'Podnadpisi is temporarily rate limited. Please try again later.'
+    if 'network error' in lowered:
+      return 'Podnadpisi network error. Check your connection and try again.'
+    return '%s request failed.' % (provider_name)
+
+  if provider_key == 'bsplayer':
+    if 'network error' in lowered:
+      return 'BSPlayer network error. Check your connection and try again.'
+    return '%s request failed.' % (provider_name)
+
+  if auth_error:
+    return '%s credentials are incomplete or invalid.' % (provider_name)
+  if 'network error' in lowered:
+    return '%s network error. Check your connection and try again.' % (provider_name)
+  return '%s request failed.' % (provider_name)
+
 def _configured_download_provider_names():
   names = []
   if _is_opensubtitles_enabled():
@@ -3176,20 +3222,22 @@ def _get_ready_download_providers():
 
   ready = []
   auth_errors = 0
+  last_auth_message = ''
   for provider in providers:
     try:
       provider.validate_config()
       ready.append(provider)
     except ProviderAuthError as exc:
       auth_errors += 1
+      last_auth_message = _format_download_provider_user_message(provider, exc, auth_error=True)
       _log('download provider config invalid (%s): %s' % (provider.name, exc), LOG_WARNING)
-      _notify_download_provider_warning_once(provider.name, __language__(33224) % (_as_text(getattr(provider, 'display_name', provider.name))))
+      _notify_download_provider_warning_once(provider.name, last_auth_message)
     except Exception as exc:
       _log('download provider validation failed (%s): %s' % (provider.name, exc), LOG_WARNING)
 
   if len(ready) == 0:
     if auth_errors > 0:
-      raise RuntimeError(__language__(33223))
+      raise RuntimeError(last_auth_message or __language__(33223))
     raise RuntimeError(__language__(33173))
   return ready
 
@@ -3213,6 +3261,8 @@ def _search_download_results(context, language_code):
   aggregated = []
   auth_failures = 0
   request_failures = 0
+  last_auth_message = ''
+  last_request_message = ''
 
   for provider in providers:
     try:
@@ -3228,20 +3278,23 @@ def _search_download_results(context, language_code):
         aggregated.append(item)
     except ProviderAuthError as exc:
       auth_failures += 1
+      last_auth_message = _format_download_provider_user_message(provider, exc, auth_error=True)
       _log('download provider auth failed (%s): %s' % (provider.name, exc), LOG_WARNING)
-      _notify_download_provider_warning_once(provider.name, __language__(33224) % (_as_text(getattr(provider, 'display_name', provider.name))))
+      _notify_download_provider_warning_once(provider.name, last_auth_message)
     except ProviderRequestError as exc:
       request_failures += 1
+      last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
       _log('download provider request failed (%s): %s' % (provider.name, exc), LOG_WARNING)
     except Exception as exc:
       request_failures += 1
+      last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
       _log('download provider unexpected failure (%s): %s' % (provider.name, exc), LOG_WARNING)
 
   if len(aggregated) == 0:
     if auth_failures > 0 and auth_failures == len(providers):
-      raise RuntimeError(__language__(33181))
+      raise RuntimeError(last_auth_message or __language__(33181))
     if request_failures > 0 and request_failures == len(providers):
-      raise RuntimeError(__language__(33182))
+      raise RuntimeError(last_request_message or __language__(33182))
     return []
 
   deduped = []

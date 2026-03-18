@@ -36,7 +36,7 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
         self.username = (config.get('username') or '').strip()
         self.password = (config.get('password') or '').strip()
         self.api_key = (config.get('api_key') or '').strip()
-        self.user_agent = (config.get('user_agent') or 'DualSubtitles')
+        self.user_agent = (config.get('user_agent') or 'SubtitleSuite')
         self.timeout_seconds = int(config.get('timeout_seconds') or 45)
         self._token = ''
         self._base_url = self.api_root
@@ -57,7 +57,7 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
         if not self.enabled:
             return False
         if not self.api_key or not self.username or not self.password:
-            raise ProviderAuthError('OpenSubtitles credentials are missing.')
+            raise ProviderAuthError('OpenSubtitles setup is incomplete. Enter username, password, and API key.')
         return True
 
     def _headers(self, token=''):
@@ -117,9 +117,9 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
                 status_code = int(getattr(exc, 'code', 0) or 0)
                 lowered_body = body.lower()
                 if status_code in [401, 403]:
-                    raise ProviderAuthError('OpenSubtitles authentication failed (%s).' % getattr(exc, 'code', 'unknown'))
+                    raise ProviderAuthError('OpenSubtitles login failed. Use your OpenSubtitles username (not email), password, and API key.')
                 if status_code == 400 and ('invalid username' in lowered_body or 'invalid username/password' in lowered_body):
-                    raise ProviderAuthError('OpenSubtitles authentication failed (%s).' % getattr(exc, 'code', 'unknown'))
+                    raise ProviderAuthError('OpenSubtitles login failed. Use your OpenSubtitles username (not email), not your email address.')
                 if self._is_retryable_status(status_code) and attempt < 4:
                     self._safe_log('retrying json request after HTTP %s for %s %s (attempt %d)' % (status_code, method, path, attempt))
                     _retry_sleep(attempt)
