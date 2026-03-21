@@ -77,6 +77,7 @@ from resources.lib.languages import (
 )
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
+LUCKY_FLOW_ACTIVE = False
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
   'likely': 1,
@@ -3630,7 +3631,7 @@ def _download_best_result_for_language(
     _log('lucky download search failed for %s: %s' % (normalized_language, exc), LOG_WARNING)
     return response
   except Exception as exc:
-    if notify_errors:
+    if notify_errors and not LUCKY_FLOW_ACTIVE:
       _notify(__language__(33193), NOTIFY_WARNING)
     _log('lucky download search unexpected failure for %s: %s' % (normalized_language, exc), LOG_WARNING)
     return response
@@ -3778,7 +3779,7 @@ def _download_best_result_for_language(
           pass
       continue
 
-  if notify_errors:
+  if notify_errors and not LUCKY_FLOW_ACTIVE:
     _notify(__language__(33193), NOTIFY_WARNING)
   return response
 
@@ -4698,10 +4699,10 @@ def _finalize_selected_subtitle_paths(
       except Exception:
         pass
 
-  if register_download_item:
-    Download(finalfile)
   if len(subs) > 1:
     _enforce_dual_bottom_stack_visibility(finalfile)
+  if register_download_item:
+    Download(finalfile)
   if not _apply_subtitle_to_player_now(finalfile):
     # Retry once shortly after Kodi finishes plugin callback handling.
     xbmc.sleep(250)
@@ -5345,6 +5346,8 @@ def _cleanup_lucky_downloaded_files(slots):
         pass
 
 def _run_i_feel_lucky_single_flow():
+  global LUCKY_FLOW_ACTIVE
+  LUCKY_FLOW_ACTIVE = True
   video_dir, video_basename = _current_video_context()
   if not video_dir or not video_basename:
     _show_lucky_center_summary(__language__(33230), [__language__(33175)])
@@ -5679,7 +5682,7 @@ def _run_i_feel_lucky_single_flow():
       subtitle1_dir=subtitle1_dir,
       smart_sync_temp_files=smart_sync_temp_files,
       show_notifications=False,
-      register_download_item=False
+      register_download_item=True
     )
 
     if finalized:
@@ -5774,9 +5777,12 @@ def _run_i_feel_lucky_single_flow():
       )
     )
   finally:
+    LUCKY_FLOW_ACTIVE = False
     _close_progress(progress)
 
 def _run_i_feel_lucky_flow():
+  global LUCKY_FLOW_ACTIVE
+  LUCKY_FLOW_ACTIVE = True
   video_dir, video_basename = _current_video_context()
   if not video_dir or not video_basename:
     _show_lucky_center_summary(__language__(33230), [__language__(33175)])
@@ -6156,7 +6162,7 @@ def _run_i_feel_lucky_flow():
       subtitle1_dir=subtitle1_dir,
       smart_sync_temp_files=smart_sync_temp_files,
       show_notifications=False,
-      register_download_item=False
+      register_download_item=True
     )
 
     if finalized:
@@ -6249,6 +6255,7 @@ def _run_i_feel_lucky_flow():
       )
     )
   finally:
+    LUCKY_FLOW_ACTIVE = False
     _close_progress(progress)
 
 def _run_dual_subtitle_flow():
