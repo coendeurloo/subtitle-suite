@@ -3,10 +3,7 @@
        name="Subtitle Suite"
        version="0.9.1"
        provider-name="coendeurloo">
-  <requires>
-      <import addon="script.module.pysubs2" version="0.1.0"/>
-      <import addon="script.module.chardet" />
-  </requires>
+  <requires/>
   <extension point="xbmc.subtitle.module"
              library="service.py" />
   <extension point="xbmc.addon.metadata">
