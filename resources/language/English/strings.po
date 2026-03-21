@@ -16,855 +16,1140 @@ msgstr ""
 
 msgctxt "#33004"
 msgid "Choose Dual Subtitles..."
+msgstr ""
 
 msgctxt "#33005"
 msgid "Choose First Subtitle File"
+msgstr ""
 
 msgctxt "#33006"
 msgid "Choose Second Subtitle File"
+msgstr ""
 
 msgctxt "#33007"
 msgid "This zip file does not contain a supported subtitle file."
+msgstr ""
 
 msgctxt "#33008"
 msgid "Settings..."
+msgstr ""
 
 msgctxt "#33009"
 msgid "(Press Cancel for no second subtitle)"
+msgstr ""
 
 msgctxt "#33012"
 msgid "First language"
+msgstr ""
 
 msgctxt "#33013"
 msgid "Second language"
+msgstr ""
 
 msgctxt "#33014"
 msgid "Found a subtitle for %s.\nChoose %s manually?"
+msgstr ""
 
 msgctxt "#33017"
 msgid "Automatic Subtitle Selection"
+msgstr ""
 
 msgctxt "#33018"
 msgid "Disabled"
+msgstr ""
 
 msgctxt "#33019"
 msgid "Matching and Fallback Behavior"
+msgstr ""
 
 msgctxt "#33020"
 msgid "When no subtitles are found"
+msgstr ""
 
 msgctxt "#33021"
 msgid "When only one language is found"
+msgstr ""
 
 msgctxt "#33022"
 msgid "Let me choose both subtitles"
+msgstr ""
 
 msgctxt "#33023"
 msgid "Let me choose the first subtitle only"
+msgstr ""
 
 msgctxt "#33024"
 msgid "Stop and show a message"
+msgstr ""
 
 msgctxt "#33025"
 msgid "Ask me what to do"
+msgstr ""
 
 msgctxt "#33026"
 msgid "Use what was found, ask for the rest"
+msgstr ""
 
 msgctxt "#33027"
 msgid "Ignore the match, let me choose both"
+msgstr ""
 
 msgctxt "#33028"
 msgid "Always require two subtitles"
+msgstr ""
 
 msgctxt "#33029"
 msgid "File name matching"
+msgstr ""
 
 msgctxt "#33030"
 msgid "Strict — file must match the video name exactly"
+msgstr ""
 
 msgctxt "#33031"
 msgid "Flexible — also match files with extra words in the name"
+msgstr ""
 
 msgctxt "#33032"
 msgid "Where to look for subtitles first"
+msgstr ""
 
 msgctxt "#33033"
 msgid "Same folder as the video"
+msgstr ""
 
 msgctxt "#33034"
 msgid "Last folder I used"
+msgstr ""
 
 msgctxt "#33035"
 msgid "Found both subtitles (%s and %s)."
+msgstr ""
 
 msgctxt "#33036"
 msgid "Found only %s, missing %s."
+msgstr ""
 
 msgctxt "#33037"
 msgid "No matching subtitles found."
+msgstr ""
 
 msgctxt "#33038"
 msgid "Multiple matches found. Switching to manual selection."
+msgstr ""
 
 msgctxt "#33039"
 msgid "Stopped: no subtitle match found."
+msgstr ""
 
 msgctxt "#33040"
 msgid "A second subtitle is required."
+msgstr ""
 
 msgctxt "#33041"
 msgid "Dual subtitles loaded."
+msgstr ""
 
 msgctxt "#33042"
 msgid "Could not prepare subtitles."
+msgstr ""
 
 msgctxt "#33043"
 msgid "Could not open the selected subtitle file."
+msgstr ""
 
 msgctxt "#33044"
 msgid "Using manual subtitle selection."
+msgstr ""
 
 msgctxt "#33045"
 msgid "Single subtitle loaded."
+msgstr ""
 
 msgctxt "#33046"
 msgid "Languages"
+msgstr ""
 
 msgctxt "#33047"
 msgid "When Subtitles Are Missing"
+msgstr ""
 
 msgctxt "#33048"
 msgid "Subtitle Position"
+msgstr ""
 
 msgctxt "#33049"
 msgid "Timing"
+msgstr ""
 
 msgctxt "#33050"
 msgid "Bottom Subtitle Look"
+msgstr ""
 
 msgctxt "#33051"
 msgid "Top Subtitle Look"
+msgstr ""
 
 msgctxt "#33052"
 msgid "Strict: the file must be named exactly like the video, e.g. Movie.nl.srt.\nFlexible: also matches files with extra words, e.g. Movie.forced.nl.srt."
+msgstr ""
 
 msgctxt "#33053"
 msgid "When you browse for subtitles, should it start in the video's folder or the last folder you used?"
+msgstr ""
 
 msgctxt "#33054"
 msgid "What should happen when no subtitles are found for your languages?"
+msgstr ""
 
 msgctxt "#33055"
 msgid "What should happen when only one of your two languages is found?"
+msgstr ""
 
 msgctxt "#33056"
 msgid "When on: both subtitles must be found or it stops.\nWhen off: it's OK to continue with just one subtitle."
+msgstr ""
 
 msgctxt "#33057"
 msgid "Choose the languages you want subtitles in.\nSet both for dual subtitles, or just the first one for a single subtitle."
+msgstr ""
 
 msgctxt "#33058"
 msgid "AI Translation"
+msgstr ""
 
 msgctxt "#33059"
 msgid "Use AI to translate subtitles"
+msgstr ""
 
 msgctxt "#33060"
 msgid "OpenAI API key"
+msgstr ""
 
 msgctxt "#33061"
 msgid "AI model"
+msgstr ""
 
 msgctxt "#33062"
 msgid "Lines per translation request"
+msgstr ""
 
 msgctxt "#33063"
 msgid "Translates subtitles using AI (requires an OpenAI API key).\nUse 'Translate Subtitle...' from the addon menu to translate a subtitle file.\nTranslated files are saved next to the original with a backup."
+msgstr ""
 
 msgctxt "#33064"
 msgid "Translating subtitle with AI..."
+msgstr ""
 
 msgctxt "#33065"
 msgid "AI translation created %s subtitle (%s)."
+msgstr ""
 
 msgctxt "#33066"
 msgid "AI translation failed."
+msgstr ""
 
 msgctxt "#33067"
 msgid "AI translation skipped: set your OpenAI API key first."
+msgstr ""
 
 msgctxt "#33071"
 msgid "Could not save the translated subtitle file."
+msgstr ""
 
 msgctxt "#33072"
 msgid "AI translation cancelled."
+msgstr ""
 
 msgctxt "#33073"
 msgid "AI timeout (seconds)"
+msgstr ""
 
 msgctxt "#33074"
 msgid "Continue without translation"
+msgstr ""
 
 msgctxt "#33075"
 msgid "Translate missing %s subtitle..."
+msgstr ""
 
 msgctxt "#33076"
 msgid "Translate missing %s and %s subtitles..."
+msgstr ""
 
 msgctxt "#33077"
 msgid "No subtitle files found to use as translation source."
+msgstr ""
 
 msgctxt "#33078"
 msgid "Choose source subtitle for translation"
+msgstr ""
 
 msgctxt "#33079"
 msgid "Preferred subtitles missing"
+msgstr ""
 
 msgctxt "#33080"
 msgid "AI translation completed for %s and %s."
+msgstr ""
 
 msgctxt "#33081"
 msgid "Fix timing automatically (Smart Sync)"
+msgstr ""
 
 msgctxt "#33082"
 msgid "Compares your subtitle to a reference subtitle and fixes large timing differences.\nThis is separate from the fine-tuning below."
+msgstr ""
 
 msgctxt "#33083"
 msgid "Smart Sync"
+msgstr ""
 
 msgctxt "#33084"
 msgid "Continue without fixing timing"
+msgstr ""
 
 msgctxt "#33085"
 msgid "Fix timing now..."
+msgstr ""
 
 msgctxt "#33090"
 msgid "Choose subtitle to fix timing for"
+msgstr ""
 
 msgctxt "#33091"
 msgid "Fix first subtitle: %s"
+msgstr ""
 
 msgctxt "#33092"
 msgid "Fix second subtitle: %s"
+msgstr ""
 
 msgctxt "#33093"
 msgid "Selected subtitle: %s"
+msgstr ""
 
 msgctxt "#33094"
 msgid "Video folder subtitle: %s"
+msgstr ""
 
 msgctxt "#33095"
 msgid "No reference subtitle files available."
+msgstr ""
 
 msgctxt "#33096"
 msgid "Choose a reference subtitle (the one with correct timing)"
+msgstr ""
 
 msgctxt "#33097"
 msgid "The reference and target cannot be the same file."
+msgstr ""
 
 msgctxt "#33098"
 msgid "Timing looks off.\nAverage error: %d ms\nEstimated shift: %d ms"
+msgstr ""
 
 msgctxt "#33099"
 msgid "Low confidence in timing fix (%d%%, average error %d ms)."
+msgstr ""
 
 msgctxt "#33100"
 msgid "AI-Assisted Timing Fix"
+msgstr ""
 
 msgctxt "#33101"
 msgid "Try AI for a better timing fix?\nThis sends subtitle text to OpenAI."
+msgstr ""
 
 msgctxt "#33102"
 msgid "AI improved the timing."
+msgstr ""
 
 msgctxt "#33103"
 msgid "Not enough subtitle lines for AI timing fix."
+msgstr ""
 
 msgctxt "#33104"
 msgid "AI timing fix needs an OpenAI API key."
+msgstr ""
 
 msgctxt "#33105"
 msgid "AI could not produce a usable timing fix."
+msgstr ""
 
 msgctxt "#33106"
 msgid "AI returned no valid timing matches."
+msgstr ""
 
 msgctxt "#33107"
 msgid "Timing fix confidence: %d%% (average error %d ms)."
+msgstr ""
 
 msgctxt "#33108"
 msgid "Timing fixed (%s)."
+msgstr ""
 
 msgctxt "#33109"
 msgid "Timing fix failed."
+msgstr ""
 
 msgctxt "#33110"
 msgid "Apply timing fix"
+msgstr ""
 
 msgctxt "#33111"
 msgid "Try AI instead"
+msgstr ""
 
 msgctxt "#33112"
 msgid "Skip timing fix"
+msgstr ""
 
 msgctxt "#33113"
 msgid "Could not save the fixed subtitle. Using it for this playback only."
+msgstr ""
 
 msgctxt "#33120"
 msgid "Fix Subtitle Timing (manual)..."
+msgstr ""
 
 msgctxt "#33121"
 msgid "Translate Subtitle (manual)..."
+msgstr ""
 
 msgctxt "#33122"
 msgid "Choose subtitle to fix"
+msgstr ""
 
 msgctxt "#33123"
 msgid "Only .srt subtitle files are supported for timing fixes."
+msgstr ""
 
 msgctxt "#33124"
 msgid "Choose reference subtitle (the one with correct timing)"
+msgstr ""
 
 msgctxt "#33125"
 msgid "Set at least one preferred language before translating."
+msgstr ""
 
 msgctxt "#33126"
 msgid "Choose translation target"
+msgstr ""
 
 msgctxt "#33127"
 msgid "Translate to %s"
+msgstr ""
 
 msgctxt "#33128"
 msgid "Translate to both %s and %s"
+msgstr ""
 
 msgctxt "#33130"
 msgid "Enable AI translation in settings first."
+msgstr ""
 
 msgctxt "#33131"
 msgid "Enable Smart Sync in settings first."
+msgstr ""
 
 msgctxt "#33132"
 msgid "Browse other folder..."
+msgstr ""
 
 msgctxt "#33133"
 msgid "Cancel"
+msgstr ""
 
 msgctxt "#33134"
 msgid "Fixing timing..."
+msgstr ""
 
 msgctxt "#33135"
 msgid "Loading subtitle files..."
+msgstr ""
 
 msgctxt "#33136"
 msgid "Analyzing timing..."
+msgstr ""
 
 msgctxt "#33137"
 msgid "Running AI timing fix..."
+msgstr ""
 
 msgctxt "#33138"
 msgid "Checking AI result..."
+msgstr ""
 
 msgctxt "#33139"
 msgid "Saving fixed subtitle..."
+msgstr ""
 
 msgctxt "#33140"
 msgid "Timing fix complete."
+msgstr ""
 
 msgctxt "#33141"
 msgid "Also fix the other selected subtitle with the same reference?"
+msgstr ""
 
 msgctxt "#33142"
 msgid "Timing fixed for both subtitles."
+msgstr ""
 
 msgctxt "#33143"
 msgid "Fix a second subtitle with the same reference?"
+msgstr ""
 
 msgctxt "#33144"
 msgid "Choose second subtitle to fix"
+msgstr ""
 
 msgctxt "#33145"
 msgid "When to fix timing"
+msgstr ""
 
 msgctxt "#33146"
 msgid "Ask me when timing looks off"
+msgstr ""
 
 msgctxt "#33147"
 msgid "Only when I choose to"
+msgstr ""
 
 msgctxt "#33150"
 msgid "Restore Subtitle Backup..."
+msgstr ""
 
 msgctxt "#33151"
 msgid "What to do with the fixed subtitle?"
+msgstr ""
 
 msgctxt "#33152"
 msgid "Replace the original file"
+msgstr ""
 
 msgctxt "#33153"
 msgid "Missing a language? Use 'Translate Subtitle...' from the menu to create it."
+msgstr ""
 
 msgctxt "#33154"
 msgid "Choose subtitle to restore from backup"
+msgstr ""
 
 msgctxt "#33155"
 msgid "Save as a new file"
+msgstr ""
 
 msgctxt "#33156"
 msgid "No backup found for this subtitle."
+msgstr ""
 
 msgctxt "#33157"
 msgid "Restored backup for %s."
+msgstr ""
 
 msgctxt "#33158"
 msgid "Could not restore the backup."
+msgstr ""
 
 msgctxt "#33159"
 msgid "Use fixed subtitle for this playback only"
+msgstr ""
 
 msgctxt "#33160"
 msgid "Saved fixed subtitle: %s."
+msgstr ""
 
 msgctxt "#33161"
 msgid "Using fixed subtitle for this playback only."
+msgstr ""
 
 msgctxt "#33162"
 msgid "Search & Download Subtitles..."
+msgstr ""
 
 msgctxt "#33163"
 msgid "Subtitle Sources"
+msgstr ""
 
 msgctxt "#33164"
 msgid "Download subtitles from the internet"
+msgstr ""
 
 msgctxt "#33165"
 msgid "Automatically download when subtitles are missing"
+msgstr ""
 
 msgctxt "#33166"
 msgid "Use OpenSubtitles"
+msgstr ""
 
 msgctxt "#33167"
 msgid "OpenSubtitles username"
+msgstr ""
 
 msgctxt "#33168"
 msgid "OpenSubtitles password"
+msgstr ""
 
 msgctxt "#33169"
 msgid "OpenSubtitles API key"
+msgstr ""
 
 msgctxt "#33170"
 msgid "Maximum search results per language"
+msgstr ""
 
 msgctxt "#33171"
 msgid "Searches the internet for subtitles that match your video.\nDownloaded files are saved next to the video. Old files are backed up."
+msgstr ""
 
 msgctxt "#33172"
 msgid "Subtitle downloading is turned off in settings."
+msgstr ""
 
 msgctxt "#33173"
 msgid "No subtitle source is enabled."
+msgstr ""
 
 msgctxt "#33174"
 msgid "Set your OpenSubtitles username, password, and API key in settings."
+msgstr ""
 
 msgctxt "#33175"
 msgid "No video is playing. Start a video first."
+msgstr ""
 
 msgctxt "#33176"
 msgid "Searching for subtitles..."
+msgstr ""
 
 msgctxt "#33177"
 msgid "No subtitles found for %s."
+msgstr ""
 
 msgctxt "#33178"
 msgid "Choose a subtitle to download for %s"
+msgstr ""
 
 msgctxt "#33179"
 msgid "Missing subtitles for your preferred languages."
+msgstr ""
 
 msgctxt "#33180"
 msgid "Downloaded subtitle could not be saved."
+msgstr ""
 
 msgctxt "#33181"
 msgid "Subtitle search failed: login error."
+msgstr ""
 
 msgctxt "#33182"
 msgid "Subtitle search failed: connection error."
+msgstr ""
 
 msgctxt "#33183"
 msgid "Downloaded subtitle for %s."
+msgstr ""
 
 msgctxt "#33184"
 msgid "Download skipped."
+msgstr ""
 
 msgctxt "#33185"
 msgid "Choose language for download"
+msgstr ""
 
 msgctxt "#33186"
 msgid "Enter language code (e.g. en, nl, de)"
+msgstr ""
 
 msgctxt "#33187"
 msgid "Searching %s subtitles..."
+msgstr ""
 
 msgctxt "#33188"
 msgid "Continue without downloading"
+msgstr ""
 
 msgctxt "#33189"
 msgid "Try downloading now..."
+msgstr ""
 
 msgctxt "#33190"
 msgid "Downloaded subtitle saved as %s."
+msgstr ""
 
 msgctxt "#33191"
 msgid "Downloading subtitle..."
+msgstr ""
 
 msgctxt "#33192"
 msgid "Source: %s | score %d"
+msgstr ""
 
 msgctxt "#33193"
 msgid "Subtitle download failed."
+msgstr ""
 
 msgctxt "#33194"
 msgid "Invalid language code."
+msgstr ""
 
 msgctxt "#33195"
 msgid "Download completed. Continuing..."
+msgstr ""
 
 msgctxt "#33196"
 msgid "Enter language code..."
+msgstr ""
 
 msgctxt "#33197"
 msgid "Use custom language code"
+msgstr ""
 
 msgctxt "#33220"
 msgid "Use Podnadpisi"
+msgstr ""
 
 msgctxt "#33221"
 msgid "Use SubDL"
+msgstr ""
 
 msgctxt "#33222"
 msgid "SubDL API key"
+msgstr ""
 
 msgctxt "#33223"
 msgid "Set login details for at least one enabled subtitle source."
+msgstr ""
 
 msgctxt "#33224"
 msgid "Skipping %s: login details are incomplete."
+msgstr ""
 
 msgctxt "#33225"
 msgid "Best match looks in sync: %s"
+msgstr ""
 
 msgctxt "#33226"
 msgid "Best match is likely in sync: %s"
+msgstr ""
 
 msgctxt "#33227"
 msgid "More subtitle sources"
+msgstr ""
 
 msgctxt "#33228"
 msgid "Use BSPlayer"
+msgstr ""
 
 msgctxt "#33229"
 msgid "I Feel Lucky..."
+msgstr ""
 
 msgctxt "#33230"
 msgid "I Feel Lucky"
+msgstr ""
 
 msgctxt "#33274"
 msgid "I Feel Lucky (Single Subtitle)..."
+msgstr ""
 
 msgctxt "#33275"
 msgid "I Feel Lucky (Dual Subtitles)..."
+msgstr ""
 
 msgctxt "#33276"
 msgid "Single subtitle language"
+msgstr ""
 
 msgctxt "#33277"
 msgid "Single subtitle mode"
+msgstr ""
 
 msgctxt "#33278"
 msgid "Used by 'I Feel Lucky (Single Subtitle)'.\nIf not set, it uses your first language instead."
+msgstr ""
 
 msgctxt "#33231"
 msgid "Auto-download missing subtitles"
+msgstr ""
 
 msgctxt "#33232"
 msgid "Auto-fix timing using English reference"
+msgstr ""
 
 msgctxt "#33233"
 msgid "Allow likely English reference"
+msgstr ""
 
 msgctxt "#33234"
 msgid "Auto-translate missing subtitles with AI"
+msgstr ""
 
 msgctxt "#33235"
 msgid "Continue with one subtitle on partial result (legacy)"
+msgstr ""
 
 msgctxt "#33236"
 msgid "I Feel Lucky is running..."
+msgstr ""
 
 msgctxt "#33238"
 msgid "Done! Dual subtitles are ready."
+msgstr ""
 
 msgctxt "#33239"
 msgid "Partially done. Missing: %s."
+msgstr ""
 
 msgctxt "#33240"
 msgid "Set two different languages to use I Feel Lucky."
+msgstr ""
 
 msgctxt "#33241"
 msgid "Could not prepare subtitles for playback."
+msgstr ""
 
 msgctxt "#33242"
 msgid "Downloaded %s."
+msgstr ""
 
 msgctxt "#33243"
 msgid "Translated %s from %s."
+msgstr ""
 
 msgctxt "#33244"
 msgid "Fixed timing for %s."
+msgstr ""
 
 msgctxt "#33245"
 msgid "Found an English reference (%s)."
+msgstr ""
 
 msgctxt "#33246"
 msgid "Could not find an English reference subtitle."
+msgstr ""
 
 msgctxt "#33247"
 msgid "Could not translate %s with AI."
+msgstr ""
 
 msgctxt "#33248"
 msgid "One-click flow: finds local files, downloads missing subtitles, fixes timing using English as reference, and translates with AI if needed."
+msgstr ""
 
 msgctxt "#33249"
 msgid "An English reference subtitle was found. Do you want to check if it's in sync first?"
+msgstr ""
 
 msgctxt "#33250"
 msgid "The video will jump to the first spoken line so you can check."
+msgstr ""
 
 msgctxt "#33251"
 msgid "Looking for local subtitle files..."
+msgstr ""
 
 msgctxt "#33254"
 msgid "Check if the subtitle timing looks correct, then press OK to continue."
+msgstr ""
 
 msgctxt "#33256"
 msgid "I Feel Lucky cancelled."
+msgstr ""
 
 msgctxt "#33257"
 msgid "Ask to check English subtitle timing"
+msgstr ""
 
 msgctxt "#33258"
 msgid "Searching subtitles for %s..."
+msgstr ""
 
 msgctxt "#33259"
 msgid "Trying wider search for %s..."
+msgstr ""
 
 msgctxt "#33260"
 msgid "Generating missing subtitles..."
+msgstr ""
 
 msgctxt "#33261"
 msgid "Looking for an English reference subtitle..."
+msgstr ""
 
 msgctxt "#33262"
 msgid "Fixing timing for %s..."
+msgstr ""
 
 msgctxt "#33263"
 msgid "Translating %s from %s..."
+msgstr ""
 
 msgctxt "#33264"
 msgid "English check finished. Continuing..."
+msgstr ""
 
 msgctxt "#33265"
 msgid "Finishing up..."
+msgstr ""
 
 msgctxt "#33266"
 msgid "Starting dual subtitles..."
+msgstr ""
 
 msgctxt "#33267"
 msgid "Stopped: could not find subtitles for %s even after trying all options."
+msgstr ""
 
 msgctxt "#33268"
 msgid "Watch the preview and choose when you're ready."
+msgstr ""
 
 msgctxt "#33269"
 msgid "Does the English subtitle timing look correct?"
+msgstr ""
 
 msgctxt "#33270"
 msgid "English reference skipped after preview."
+msgstr ""
 
 msgctxt "#33271"
 msgid "Yes, timing is correct"
+msgstr ""
 
 msgctxt "#33272"
 msgid "Watch the preview video and choose when you're ready."
+msgstr ""
 
 msgctxt "#33273"
 msgid "No, timing is off"
+msgstr ""
 
 msgctxt "#33279"
 msgid "Set a subtitle language first (in Languages settings)."
+msgstr ""
 
 msgctxt "#33280"
 msgid "Done! %s subtitle is ready."
+msgstr ""
 
 msgctxt "#33281"
 msgid "Stopped: could not find a subtitle for %s even after trying all options."
+msgstr ""
 
 msgctxt "#33282"
 msgid "Starting subtitle..."
+msgstr ""
 
 msgctxt "#33283"
 msgid "No reliable match found for %s."
+msgstr ""
 
 msgctxt "#33284"
 msgid "Uncertain match"
+msgstr ""
 
 msgctxt "#33285"
 msgid "Source"
+msgstr ""
 
 msgctxt "#33286"
 msgid "Try this subtitle"
+msgstr ""
 
 msgctxt "#33287"
 msgid "Skip this subtitle"
+msgstr ""
 
 msgctxt "#33288"
 msgid "Skip this language"
+msgstr ""
 
 msgctxt "#33289"
 msgid "Title doesn't match the video"
+msgstr ""
 
 msgctxt "#33290"
 msgid "Year doesn't match the video"
+msgstr ""
 
 msgctxt "#33291"
 msgid "Different version than your video"
+msgstr ""
 
 msgctxt "#33292"
 msgid "Very uncertain"
+msgstr ""
 
 msgctxt "#33293"
 msgid "Somewhat uncertain"
+msgstr ""
 
 msgctxt "#33294"
 msgid "This subtitle might not match your video."
+msgstr ""
 
 msgctxt "#33295"
 msgid "Source"
+msgstr ""
 
 msgctxt "#33296"
 msgid "Risk"
+msgstr ""
 
 msgctxt "#33297"
 msgid "Still missing subtitles: %s"
+msgstr ""
 
 msgctxt "#33298"
 msgid "Search and download manually"
+msgstr ""
 
 msgctxt "#33299"
 msgid "Translate with AI manually"
+msgstr ""
 
 msgctxt "#33300"
 msgid "No reliable match found for %s after trying all options."
+msgstr ""
 
 msgctxt "#33301"
 msgid "No subtitle candidates available for %s."
+msgstr ""
 
 msgctxt "#33302"
 msgid "User selected uncertain candidate for %s."
+msgstr ""
 
 msgctxt "#33303"
 msgid "User skipped uncertain candidates for %s."
+msgstr ""
 
 msgctxt "#33304"
 msgid "Translating %s to %s using AI..."
+msgstr ""
 
 msgctxt "#32507"
 msgid "One bottom, one top"
+msgstr ""
 
 msgctxt "#32508"
 msgid "Both at the bottom, side by side"
+msgstr ""
 
 msgctxt "#32509"
 msgid "Both at the bottom, stacked"
+msgstr ""
 
 msgctxt "#32510"
 msgid "Subtitle Suite"
+msgstr ""
 
 msgctxt "#32511"
 msgid "Top/Right Subtitle"
+msgstr ""
 
 msgctxt "#32512"
 msgid "Font"
+msgstr ""
 
 msgctxt "#32513"
 msgid "Text size"
+msgstr ""
 
 msgctxt "#32514"
 msgid "Bold text"
+msgstr ""
 
 msgctxt "#32515"
 msgid "Text color"
+msgstr ""
 
 msgctxt "#32516"
 msgid "Dark background behind text"
+msgstr ""
 
 msgctxt "#32517"
 msgid "Where to show subtitles"
+msgstr ""
 
 msgctxt "#32518"
 msgid "Distance from screen edge"
+msgstr ""
 
 msgctxt "#32519"
 msgid "Bottom/Left Subtitle"
+msgstr ""
 
 msgctxt "#32520"
 msgid "Fine-tune second subtitle timing"
+msgstr ""
 
 msgctxt "#32521"
 msgid "Maximum timing difference (ms)"
+msgstr ""
 
 msgctxt "#32522"
 msgid "Slightly adjusts the second subtitle to match the first one's timing.\nOnly corrects small differences up to the amount set above."
+msgstr ""
 
 msgctxt "#32523"
 msgid "Shadow size"
+msgstr ""
 
 msgctxt "#32524"
 msgid "Outline size"
+msgstr ""
 
 msgctxt "#32525"
 msgid "Swap the two subtitles"
+msgstr ""
 
 msgctxt "#32526"
 msgid "Minimum time subtitles stay visible (ms)"
+msgstr ""
 
 msgctxt "#32527"
 msgid "Keeps each subtitle on screen for at least this long.\nSet to 0 to disable. Useful if you need more time to read."
+msgstr ""
 
 msgctxt "#32528"
 msgid ""
+msgstr ""
 
 msgctxt "#32529"
 msgid "Text encoding"
+msgstr ""
 
 msgctxt "#32530"
 msgid "A subtitle download error may briefly appear after closing this. You can safely ignore it."
+msgstr ""
 
 msgctxt "#32531"
 msgid "Error loading subtitle file"
+msgstr ""
 
 msgctxt "#32532"
 msgid "White"
+msgstr ""
 
 msgctxt "#32533"
 msgid "Yellow"
+msgstr ""
 
 msgctxt "#32534"
 msgid "Charset Normalizer Not Supported by Python 2 (Kodi 18 or Lower)"
+msgstr ""
 
 msgctxt "#32535"
 msgid "In Kodi Settings > Player > Subtitles > Font, the default font is selected. Please choose a specific font there or in this addon's settings."
+msgstr ""
 
 msgctxt "#32536"
 msgid "Could not read the subtitle font from Kodi settings."
+msgstr ""
