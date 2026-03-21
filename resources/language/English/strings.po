@@ -558,7 +558,7 @@ msgctxt "#33226"
 msgid "Best match is likely in sync: %s"
 
 msgctxt "#33227"
-msgid "Sources: %s"
+msgid "More subtitle sources"
 
 msgctxt "#33228"
 msgid "Use BSPlayer"
