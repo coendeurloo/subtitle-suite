@@ -202,15 +202,15 @@
         </setting>
         <setting id="provider_opensubtitles_username" type="string" label="33167">
           <level>0</level>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
         <setting id="provider_opensubtitles_password" type="string" label="33168">
           <level>0</level>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
         <setting id="provider_opensubtitles_api_key" type="string" label="33169">
           <level>0</level>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
       </group>
 
@@ -227,7 +227,7 @@
         </setting>
         <setting id="provider_subdl_api_key" type="string" label="33222">
           <level>0</level>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
         <setting id="provider_bsplayer_enabled" type="boolean" label="33228">
           <level>0</level>
@@ -248,7 +248,7 @@
         </setting>
         <setting id="openai_api_key" type="string" label="33060">
           <level>0</level>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
         <setting id="openai_model" type="string" label="33061">
           <level>1</level>
@@ -256,7 +256,7 @@
           <dependencies>
             <dependency type="visible" setting="enable_ai_translation">true</dependency>
           </dependencies>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
       </group>
     </category>
@@ -299,7 +299,7 @@
         <setting id="last_used_subtitle_dir" type="string" label="">
           <level>100</level>
           <visible>false</visible>
-          <control type="edit" format="string"></control>
+          <control type="edit" format="string"/>
         </setting>
       </group>
     </category>
