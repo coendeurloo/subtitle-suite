@@ -1,631 +1,94 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<settings version="2">
-  <section id="main" label="32510">
-
-    <!-- ======== 1. Languages ======== -->
-    <category id="languages" label="33046">
-      <group id="lang_prefs" label="33046">
-        <setting id="preferred_language_1" type="string" label="33012">
-          <help>33057</help>
-          <level>0</level>
-          <default>Disabled</default>
-          <constraints>
-            <options>
-              <option>Disabled</option>
-              <option>Afrikaans (af)</option>
-              <option>Albanian (sq)</option>
-              <option>Arabic (ar)</option>
-              <option>Armenian (hy)</option>
-              <option>Azerbaijani (az)</option>
-              <option>Basque (eu)</option>
-              <option>Belarusian (be)</option>
-              <option>Bengali (bn)</option>
-              <option>Bosnian (bs)</option>
-              <option>Bulgarian (bg)</option>
-              <option>Catalan (ca)</option>
-              <option>Chinese (zh)</option>
-              <option>Croatian (hr)</option>
-              <option>Czech (cs)</option>
-              <option>Danish (da)</option>
-              <option>Dutch (nl)</option>
-              <option>English (en)</option>
-              <option>Estonian (et)</option>
-              <option>Finnish (fi)</option>
-              <option>French (fr)</option>
-              <option>Galician (gl)</option>
-              <option>Georgian (ka)</option>
-              <option>German (de)</option>
-              <option>Greek (el)</option>
-              <option>Hebrew (he)</option>
-              <option>Hindi (hi)</option>
-              <option>Hungarian (hu)</option>
-              <option>Icelandic (is)</option>
-              <option>Indonesian (id)</option>
-              <option>Irish (ga)</option>
-              <option>Italian (it)</option>
-              <option>Japanese (ja)</option>
-              <option>Kazakh (kk)</option>
-              <option>Korean (ko)</option>
-              <option>Latvian (lv)</option>
-              <option>Lithuanian (lt)</option>
-              <option>Macedonian (mk)</option>
-              <option>Malay (ms)</option>
-              <option>Norwegian (no)</option>
-              <option>Persian (fa)</option>
-              <option>Polish (pl)</option>
-              <option>Portuguese (pt)</option>
-              <option>Romanian (ro)</option>
-              <option>Russian (ru)</option>
-              <option>Serbian (sr)</option>
-              <option>Slovak (sk)</option>
-              <option>Slovenian (sl)</option>
-              <option>Spanish (es)</option>
-              <option>Swedish (sv)</option>
-              <option>Tamil (ta)</option>
-              <option>Thai (th)</option>
-              <option>Turkish (tr)</option>
-              <option>Ukrainian (uk)</option>
-              <option>Urdu (ur)</option>
-              <option>Vietnamese (vi)</option>
-              <option>Welsh (cy)</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="preferred_language_2" type="string" label="33013">
-          <help>33057</help>
-          <level>0</level>
-          <default>Disabled</default>
-          <constraints>
-            <options>
-              <option>Disabled</option>
-              <option>Afrikaans (af)</option>
-              <option>Albanian (sq)</option>
-              <option>Arabic (ar)</option>
-              <option>Armenian (hy)</option>
-              <option>Azerbaijani (az)</option>
-              <option>Basque (eu)</option>
-              <option>Belarusian (be)</option>
-              <option>Bengali (bn)</option>
-              <option>Bosnian (bs)</option>
-              <option>Bulgarian (bg)</option>
-              <option>Catalan (ca)</option>
-              <option>Chinese (zh)</option>
-              <option>Croatian (hr)</option>
-              <option>Czech (cs)</option>
-              <option>Danish (da)</option>
-              <option>Dutch (nl)</option>
-              <option>English (en)</option>
-              <option>Estonian (et)</option>
-              <option>Finnish (fi)</option>
-              <option>French (fr)</option>
-              <option>Galician (gl)</option>
-              <option>Georgian (ka)</option>
-              <option>German (de)</option>
-              <option>Greek (el)</option>
-              <option>Hebrew (he)</option>
-              <option>Hindi (hi)</option>
-              <option>Hungarian (hu)</option>
-              <option>Icelandic (is)</option>
-              <option>Indonesian (id)</option>
-              <option>Irish (ga)</option>
-              <option>Italian (it)</option>
-              <option>Japanese (ja)</option>
-              <option>Kazakh (kk)</option>
-              <option>Korean (ko)</option>
-              <option>Latvian (lv)</option>
-              <option>Lithuanian (lt)</option>
-              <option>Macedonian (mk)</option>
-              <option>Malay (ms)</option>
-              <option>Norwegian (no)</option>
-              <option>Persian (fa)</option>
-              <option>Polish (pl)</option>
-              <option>Portuguese (pt)</option>
-              <option>Romanian (ro)</option>
-              <option>Russian (ru)</option>
-              <option>Serbian (sr)</option>
-              <option>Slovak (sk)</option>
-              <option>Slovenian (sl)</option>
-              <option>Spanish (es)</option>
-              <option>Swedish (sv)</option>
-              <option>Tamil (ta)</option>
-              <option>Thai (th)</option>
-              <option>Turkish (tr)</option>
-              <option>Ukrainian (uk)</option>
-              <option>Urdu (ur)</option>
-              <option>Vietnamese (vi)</option>
-              <option>Welsh (cy)</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-      </group>
-
-      <group id="lang_matching" label="33029">
-        <setting id="match_strictness" type="string" label="33029">
-          <help>33052</help>
-          <level>0</level>
-          <default>33030</default>
-          <constraints>
-            <options>
-              <option label="33030">33030</option>
-              <option label="33031">33031</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="start_folder_priority" type="string" label="33032">
-          <help>33053</help>
-          <level>0</level>
-          <default>33033</default>
-          <constraints>
-            <options>
-              <option label="33033">33033</option>
-              <option label="33034">33034</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-      </group>
+<settings>
+    <category label="33046">
+        <setting id="preferred_language_1" type="labelenum" label="33012" default="Disabled" subsetting="true" values="Disabled|Afrikaans (af)|Albanian (sq)|Arabic (ar)|Armenian (hy)|Azerbaijani (az)|Basque (eu)|Belarusian (be)|Bengali (bn)|Bosnian (bs)|Bulgarian (bg)|Catalan (ca)|Chinese (zh)|Croatian (hr)|Czech (cs)|Danish (da)|Dutch (nl)|English (en)|Estonian (et)|Finnish (fi)|French (fr)|Galician (gl)|Georgian (ka)|German (de)|Greek (el)|Hebrew (he)|Hindi (hi)|Hungarian (hu)|Icelandic (is)|Indonesian (id)|Irish (ga)|Italian (it)|Japanese (ja)|Kazakh (kk)|Korean (ko)|Latvian (lv)|Lithuanian (lt)|Macedonian (mk)|Malay (ms)|Norwegian (no)|Persian (fa)|Polish (pl)|Portuguese (pt)|Romanian (ro)|Russian (ru)|Serbian (sr)|Slovak (sk)|Slovenian (sl)|Spanish (es)|Swedish (sv)|Tamil (ta)|Thai (th)|Turkish (tr)|Ukrainian (uk)|Urdu (ur)|Vietnamese (vi)|Welsh (cy)"/>
+        <setting id="preferred_language_2" type="labelenum" label="33013" default="Disabled" subsetting="true" values="Disabled|Afrikaans (af)|Albanian (sq)|Arabic (ar)|Armenian (hy)|Azerbaijani (az)|Basque (eu)|Belarusian (be)|Bengali (bn)|Bosnian (bs)|Bulgarian (bg)|Catalan (ca)|Chinese (zh)|Croatian (hr)|Czech (cs)|Danish (da)|Dutch (nl)|English (en)|Estonian (et)|Finnish (fi)|French (fr)|Galician (gl)|Georgian (ka)|German (de)|Greek (el)|Hebrew (he)|Hindi (hi)|Hungarian (hu)|Icelandic (is)|Indonesian (id)|Irish (ga)|Italian (it)|Japanese (ja)|Kazakh (kk)|Korean (ko)|Latvian (lv)|Lithuanian (lt)|Macedonian (mk)|Malay (ms)|Norwegian (no)|Persian (fa)|Polish (pl)|Portuguese (pt)|Romanian (ro)|Russian (ru)|Serbian (sr)|Slovak (sk)|Slovenian (sl)|Spanish (es)|Swedish (sv)|Tamil (ta)|Thai (th)|Turkish (tr)|Ukrainian (uk)|Urdu (ur)|Vietnamese (vi)|Welsh (cy)"/>
+        <setting label="33057" type="text" enable="false"/>
+        <setting type="lsep"/>
+        <setting id="match_strictness" type="labelenum" label="33029" default="33030" subsetting="true" lvalues="33030|33031"/>
+        <setting label="33052" type="text" enable="false"/>
+        <setting id="start_folder_priority" type="labelenum" label="33032" default="33033" subsetting="true" lvalues="33033|33034"/>
+        <setting label="33053" type="text" enable="false"/>
     </category>
 
-    <!-- ======== 2. Subtitle Sources ======== -->
-    <category id="sources" label="33163">
-      <group id="download_general" label="33163">
-        <setting id="enable_subtitle_download" type="boolean" label="33164">
-          <help>33171</help>
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="download_auto_on_missing" type="boolean" label="33165">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="download_max_results" type="integer" label="33170">
-          <level>1</level>
-          <default>12</default>
-          <constraints>
-            <minimum>1</minimum>
-            <maximum>50</maximum>
-          </constraints>
-          <control type="edit" format="integer"/>
-        </setting>
-      </group>
+    <category label="33163">
+        <setting id="enable_subtitle_download" type="bool" label="33164" default="true" subsetting="true"/>
+        <setting id="download_auto_on_missing" type="bool" label="33165" default="true" subsetting="true"/>
+        <setting id="download_max_results" type="number" label="33170" default="12" subsetting="true"/>
+        <setting type="lsep"/>
 
-      <group id="provider_opensubtitles" label="33166">
-        <setting id="provider_opensubtitles_enabled" type="boolean" label="33166">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="provider_opensubtitles_username" type="string" label="33167">
-          <level>0</level>
-          <control type="edit" format="string"/>
-        </setting>
-        <setting id="provider_opensubtitles_password" type="string" label="33168">
-          <level>0</level>
-          <control type="edit" format="string"/>
-        </setting>
-        <setting id="provider_opensubtitles_api_key" type="string" label="33169">
-          <level>0</level>
-          <control type="edit" format="string"/>
-        </setting>
-      </group>
+        <setting id="provider_opensubtitles_enabled" type="bool" label="33166" default="true" subsetting="true"/>
+        <setting id="provider_opensubtitles_username" type="text" label="33167" default="" subsetting="true"/>
+        <setting id="provider_opensubtitles_password" type="text" label="33168" option="hidden" default="" subsetting="true"/>
+        <setting id="provider_opensubtitles_api_key" type="text" label="33169" option="hidden" default="" subsetting="true"/>
+        <setting type="lsep"/>
 
-      <group id="provider_others" label="33227">
-        <setting id="provider_podnadpisi_enabled" type="boolean" label="33220">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="provider_subdl_enabled" type="boolean" label="33221">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="provider_subdl_api_key" type="string" label="33222">
-          <level>0</level>
-          <control type="edit" format="string"/>
-        </setting>
-        <setting id="provider_bsplayer_enabled" type="boolean" label="33228">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-      </group>
+        <setting id="provider_podnadpisi_enabled" type="bool" label="33220" default="true" subsetting="true"/>
+        <setting id="provider_subdl_enabled" type="bool" label="33221" default="false" subsetting="true"/>
+        <setting id="provider_subdl_api_key" type="text" label="33222" option="hidden" default="" subsetting="true"/>
+        <setting id="provider_bsplayer_enabled" type="bool" label="33228" default="false" subsetting="true"/>
+        <setting label="33171" type="text" enable="false"/>
     </category>
 
-    <!-- ======== 3. AI Translation ======== -->
-    <category id="ai_translation" label="33058">
-      <group id="ai_settings" label="33058">
-        <setting id="enable_ai_translation" type="boolean" label="33059">
-          <help>33063</help>
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="openai_api_key" type="string" label="33060">
-          <level>0</level>
-          <control type="edit" format="string"/>
-        </setting>
-        <setting id="openai_model" type="string" label="33061">
-          <level>1</level>
-          <default>gpt-4.1-mini</default>
-          <dependencies>
-            <dependency type="visible" setting="enable_ai_translation">true</dependency>
-          </dependencies>
-          <control type="edit" format="string"/>
-        </setting>
-      </group>
+    <category label="33058">
+        <setting id="enable_ai_translation" type="bool" label="33059" default="false" subsetting="true"/>
+        <setting id="openai_api_key" type="text" label="33060" option="hidden" default="" subsetting="true"/>
+        <setting id="openai_model" type="text" label="33061" default="gpt-4.1-mini" subsetting="true"/>
+        <setting label="33063" type="text" enable="false"/>
     </category>
 
-    <!-- ======== 4. When Subtitles Are Missing ======== -->
-    <category id="missing" label="33047">
-      <group id="missing_behavior" label="33047">
-        <setting id="no_match_behavior" type="string" label="33020">
-          <help>33054</help>
-          <level>0</level>
-          <default>33022</default>
-          <constraints>
-            <options>
-              <option label="33022">33022</option>
-              <option label="33023">33023</option>
-              <option label="33024">33024</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="partial_match_behavior" type="string" label="33021">
-          <help>33055</help>
-          <level>0</level>
-          <default>33025</default>
-          <constraints>
-            <options>
-              <option label="33025">33025</option>
-              <option label="33026">33026</option>
-              <option label="33027">33027</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="second_subtitle_required" type="boolean" label="33028">
-          <help>33056</help>
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="last_used_subtitle_dir" type="string" label="">
-          <level>100</level>
-          <visible>false</visible>
-          <control type="edit" format="string"/>
-        </setting>
-      </group>
+    <category label="33047">
+        <setting id="no_match_behavior" type="labelenum" label="33020" default="33022" subsetting="true" lvalues="33022|33023|33024"/>
+        <setting label="33054" type="text" enable="false"/>
+        <setting type="lsep"/>
+        <setting id="partial_match_behavior" type="labelenum" label="33021" default="33025" subsetting="true" lvalues="33025|33026|33027"/>
+        <setting label="33055" type="text" enable="false"/>
+        <setting type="lsep"/>
+        <setting id="second_subtitle_required" type="bool" label="33028" default="false" subsetting="true"/>
+        <setting label="33056" type="text" enable="false"/>
+        <setting id="last_used_subtitle_dir" type="text" default="" visible="false"/>
     </category>
 
-    <!-- ======== 5. Timing ======== -->
-    <category id="timing" label="33049">
-      <group id="smart_sync" label="33081">
-        <setting id="enable_smart_sync" type="boolean" label="33081">
-          <help>33082</help>
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="smart_sync_mode" type="string" label="33145">
-          <level>0</level>
-          <default>33147</default>
-          <dependencies>
-            <dependency type="visible" setting="enable_smart_sync">true</dependency>
-          </dependencies>
-          <constraints>
-            <options>
-              <option label="33147">33147</option>
-              <option label="33146">33146</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-      </group>
-
-      <group id="auto_shift" label="32520">
-        <setting id="autoShft" type="boolean" label="32520">
-          <help>32522</help>
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="autoShftAmt" type="integer" label="32521">
-          <level>0</level>
-          <default>500</default>
-          <dependencies>
-            <dependency type="visible" setting="autoShft">true</dependency>
-          </dependencies>
-          <constraints>
-            <minimum>50</minimum>
-            <step>50</step>
-            <maximum>5000</maximum>
-          </constraints>
-          <control type="edit" format="integer"/>
-        </setting>
-      </group>
-
-      <group id="min_time" label="32526">
-        <setting id="minTime" type="integer" label="32526">
-          <help>32527</help>
-          <level>0</level>
-          <default>0</default>
-          <constraints>
-            <minimum>0</minimum>
-            <step>100</step>
-            <maximum>10000</maximum>
-          </constraints>
-          <control type="edit" format="integer"/>
-        </setting>
-      </group>
+    <category label="33049">
+        <setting id="minTime" type="number" label="32526" default="0" subsetting="true"/>
+        <setting label="32527" type="text" enable="false"/>
+        <setting label="32528" type="text" enable="false"/>
+        <setting type="lsep"/>
+        <setting id="enable_smart_sync" type="bool" label="33081" default="true" subsetting="true"/>
+        <setting id="smart_sync_mode" type="labelenum" label="33145" default="33147" subsetting="true" lvalues="33147|33146" enable="eq(-1,true)"/>
+        <setting label="33082" type="text" enable="false"/>
+        <setting type="lsep"/>
+        <setting id="autoShft" type="bool" label="32520" default="true"/>
+        <setting id="autoShftAmt" type="number" label="32521" default="500" subsetting="true" enable="eq(-1,true)"/>
+        <setting label="32522" type="text" enable="false"/>
     </category>
 
-    <!-- ======== 6. Subtitle Position ======== -->
-    <category id="position" label="33048">
-      <group id="layout" label="33048">
-        <setting id="subtitle_locations" type="string" label="32517">
-          <level>0</level>
-          <default>32507</default>
-          <constraints>
-            <options>
-              <option label="32507">32507</option>
-              <option label="32508">32508</option>
-              <option label="32509">32509</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="dualsub_swap" type="boolean" label="32525">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-      </group>
+    <category label="33048">
+        <setting id="subtitle_locations" type="labelenum" label="32517" default="32507" subsetting="true" lvalues="32507|32508|32509"/>
+        <setting id="dualsub_swap" type="bool" label="32525" default="false" subsetting="true"/>
     </category>
 
-    <!-- ======== 7. Bottom Subtitle Look ======== -->
-    <category id="bottom_style" label="33050">
-      <group id="bottom_font_settings" label="33050">
-        <setting id="bottom_font" type="string" label="32512">
-          <level>0</level>
-          <default>Arial</default>
-          <constraints>
-            <options>
-              <option>Arial</option>
-              <option>Verdana</option>
-              <option>DejaVu Sans</option>
-              <option>&lt;Kodi Subtitles Font&gt;</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="bottom_characterset" type="string" label="32529">
-          <level>1</level>
-          <default>Auto Chardet</default>
-          <constraints>
-            <options>
-              <option>Auto Chardet</option>
-              <option>Auto Charset_normalizer</option>
-              <option>Arabic (ISO)</option>
-              <option>Arabic (Windows)</option>
-              <option>Baltic (ISO)</option>
-              <option>Baltic (Windows)</option>
-              <option>Central Europe (ISO)</option>
-              <option>Central Europe (Windows)</option>
-              <option>Chinese Simplified (ISO)</option>
-              <option>Chinese Traditional (Big5)</option>
-              <option>Cyrillic (ISO)</option>
-              <option>Cyrillic (Windows)</option>
-              <option>Greek (ISO)</option>
-              <option>Greek (Windows)</option>
-              <option>Hebrew (ISO)</option>
-              <option>Hebrew (Windows)</option>
-              <option>Hong Kong (Big5-HKSCS)</option>
-              <option>Japanese (Shift-JIS)</option>
-              <option>Korean</option>
-              <option>Nordic Languages (ISO)</option>
-              <option>South Europe (ISO)</option>
-              <option>Thai (Windows)</option>
-              <option>Turkish (ISO)</option>
-              <option>Turkish (Windows)</option>
-              <option>Vietnamese (Windows)</option>
-              <option>UTF8</option>
-              <option>UTF16</option>
-              <option>UTF32</option>
-              <option>Western Europe (ISO)</option>
-              <option>Western Europe (Windows)</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="bottom_fontsize" type="integer" label="32513">
-          <level>0</level>
-          <default>17</default>
-          <constraints>
-            <minimum>12</minimum>
-            <step>1</step>
-            <maximum>30</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="bottom_bold" type="boolean" label="32514">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="bottom_color" type="string" label="32515">
-          <level>0</level>
-          <default>32532</default>
-          <constraints>
-            <options>
-              <option label="32532">32532</option>
-              <option label="32533">32533</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="bottom_background" type="boolean" label="32516">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="bottom_shadow" type="integer" label="32523">
-          <level>0</level>
-          <default>0</default>
-          <constraints>
-            <minimum>0</minimum>
-            <step>1</step>
-            <maximum>3</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="bottom_outline" type="integer" label="32524">
-          <level>0</level>
-          <default>1</default>
-          <constraints>
-            <minimum>0</minimum>
-            <step>1</step>
-            <maximum>5</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="bottom_verticalmargin" type="integer" label="32518">
-          <level>0</level>
-          <default>10</default>
-          <constraints>
-            <minimum>-100</minimum>
-            <step>1</step>
-            <maximum>100</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-      </group>
+    <category label="33050">
+        <setting id="bottom_font" type="labelenum" label="32512" default="Arial" subsetting="true" values="Arial|Verdana|DejaVu Sans|&lt;Kodi Subtitles Font&gt;"/>
+        <setting id="bottom_characterset" type="select" label="32529" default="Auto Chardet" subsetting="true" values="Auto Chardet|Auto Charset_normalizer|Arabic (ISO)|Arabic (Windows)|Baltic (ISO)|Baltic (Windows)|Central Europe (ISO)|Central Europe (Windows)|Chinese Simplified (ISO)|Chinese Traditional (Big5)|Cyrillic (ISO)|Cyrillic (Windows)|Greek (ISO)|Greek (Windows)|Hebrew (ISO)|Hebrew (Windows)|Hong Kong (Big5-HKSCS)|Japanese (Shift-JIS)|Korean|Nordic Languages (ISO)|South Europe (ISO)|Thai (Windows)|Turkish (ISO)|Turkish (Windows)|Vietnamese (Windows)|UTF8|UTF16|UTF32|Western Europe (ISO)|Western Europe (Windows)"/>
+        <setting id="bottom_fontsize" type="slider" label="32513" default="17" subsetting="true" range="12,1,30" option="int"/>
+        <setting id="bottom_bold" type="bool" label="32514" default="true" subsetting="true"/>
+        <setting id="bottom_color" type="labelenum" label="32515" default="32532" subsetting="true" lvalues="32532|32533"/>
+        <setting id="bottom_background" type="bool" label="32516" default="false" subsetting="true"/>
+        <setting id="bottom_shadow" type="slider" label="32523" default="0" subsetting="true" range="0,1,3" option="int"/>
+        <setting id="bottom_outline" type="slider" label="32524" default="1" subsetting="true" range="0,1,5" option="int"/>
+        <setting id="bottom_verticalmargin" type="slider" label="32518" default="10" range="-100,1,100" option="int"/>
     </category>
 
-    <!-- ======== 8. Top Subtitle Look ======== -->
-    <category id="top_style" label="33051">
-      <group id="top_font_settings" label="33051">
-        <setting id="top_font" type="string" label="32512">
-          <level>0</level>
-          <default>Arial</default>
-          <constraints>
-            <options>
-              <option>Arial</option>
-              <option>Verdana</option>
-              <option>DejaVu Sans</option>
-              <option>&lt;Kodi Subtitles Font&gt;</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="top_characterset" type="string" label="32529">
-          <level>1</level>
-          <default>Auto Chardet</default>
-          <constraints>
-            <options>
-              <option>Auto Chardet</option>
-              <option>Auto Charset_normalizer</option>
-              <option>Arabic (ISO)</option>
-              <option>Arabic (Windows)</option>
-              <option>Baltic (ISO)</option>
-              <option>Baltic (Windows)</option>
-              <option>Central Europe (ISO)</option>
-              <option>Central Europe (Windows)</option>
-              <option>Chinese Simplified (ISO)</option>
-              <option>Chinese Traditional (Big5)</option>
-              <option>Cyrillic (ISO)</option>
-              <option>Cyrillic (Windows)</option>
-              <option>Greek (ISO)</option>
-              <option>Greek (Windows)</option>
-              <option>Hebrew (ISO)</option>
-              <option>Hebrew (Windows)</option>
-              <option>Hong Kong (Big5-HKSCS)</option>
-              <option>Japanese (Shift-JIS)</option>
-              <option>Korean</option>
-              <option>Nordic Languages (ISO)</option>
-              <option>South Europe (ISO)</option>
-              <option>Thai (Windows)</option>
-              <option>Turkish (ISO)</option>
-              <option>Turkish (Windows)</option>
-              <option>Vietnamese (Windows)</option>
-              <option>UTF8</option>
-              <option>UTF16</option>
-              <option>UTF32</option>
-              <option>Western Europe (ISO)</option>
-              <option>Western Europe (Windows)</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="top_fontsize" type="integer" label="32513">
-          <level>0</level>
-          <default>17</default>
-          <constraints>
-            <minimum>12</minimum>
-            <step>1</step>
-            <maximum>30</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="top_bold" type="boolean" label="32514">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="top_color" type="string" label="32515">
-          <level>0</level>
-          <default>32532</default>
-          <constraints>
-            <options>
-              <option label="32532">32532</option>
-              <option label="32533">32533</option>
-            </options>
-          </constraints>
-          <control type="list" format="string"/>
-        </setting>
-        <setting id="top_background" type="boolean" label="32516">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="top_shadow" type="integer" label="32523">
-          <level>0</level>
-          <default>0</default>
-          <constraints>
-            <minimum>0</minimum>
-            <step>1</step>
-            <maximum>3</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="top_outline" type="integer" label="32524">
-          <level>0</level>
-          <default>1</default>
-          <constraints>
-            <minimum>0</minimum>
-            <step>1</step>
-            <maximum>5</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="top_verticalmargin" type="integer" label="32518">
-          <level>0</level>
-          <default>10</default>
-          <constraints>
-            <minimum>-100</minimum>
-            <step>1</step>
-            <maximum>100</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-      </group>
+    <category label="33051">
+        <setting id="top_font" type="labelenum" label="32512" default="Arial" subsetting="true" values="Arial|Verdana|DejaVu Sans|&lt;Kodi Subtitles Font&gt;"/>
+        <setting id="top_characterset" type="select" label="32529" default="Auto Chardet" subsetting="true" values="Auto Chardet|Auto Charset_normalizer|Arabic (ISO)|Arabic (Windows)|Baltic (ISO)|Baltic (Windows)|Central Europe (ISO)|Central Europe (Windows)|Chinese Simplified (ISO)|Chinese Traditional (Big5)|Cyrillic (ISO)|Cyrillic (Windows)|Greek (ISO)|Greek (Windows)|Hebrew (ISO)|Hebrew (Windows)|Hong Kong (Big5-HKSCS)|Japanese (Shift-JIS)|Korean|Nordic Languages (ISO)|South Europe (ISO)|Thai (Windows)|Turkish (ISO)|Turkish (Windows)|Vietnamese (Windows)|UTF8|UTF16|UTF32|Western Europe (ISO)|Western Europe (Windows)"/>
+        <setting id="top_fontsize" type="slider" label="32513" default="17" subsetting="true" range="12,1,30" option="int"/>
+        <setting id="top_bold" type="bool" label="32514" default="true" subsetting="true"/>
+        <setting id="top_color" type="labelenum" label="32515" default="32532" subsetting="true" lvalues="32532|32533"/>
+        <setting id="top_background" type="bool" label="32516" default="false" subsetting="true"/>
+        <setting id="top_shadow" type="slider" label="32523" default="0" subsetting="true" range="0,1,3" option="int"/>
+        <setting id="top_outline" type="slider" label="32524" default="1" subsetting="true" range="0,1,5" option="int"/>
+        <setting id="top_verticalmargin" type="slider" label="32518" default="10" range="-100,1,100" option="int"/>
     </category>
-
-  </section>
 </settings>
