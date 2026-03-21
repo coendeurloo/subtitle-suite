@@ -202,17 +202,14 @@
         </setting>
         <setting id="provider_opensubtitles_username" type="string" label="33167">
           <level>0</level>
-          <default></default>
           <control type="edit" format="string"></control>
         </setting>
         <setting id="provider_opensubtitles_password" type="string" label="33168">
           <level>0</level>
-          <default></default>
           <control type="edit" format="string"></control>
         </setting>
         <setting id="provider_opensubtitles_api_key" type="string" label="33169">
           <level>0</level>
-          <default></default>
           <control type="edit" format="string"></control>
         </setting>
       </group>
@@ -230,7 +227,6 @@
         </setting>
         <setting id="provider_subdl_api_key" type="string" label="33222">
           <level>0</level>
-          <default></default>
           <control type="edit" format="string"></control>
         </setting>
         <setting id="provider_bsplayer_enabled" type="boolean" label="33228">
@@ -252,7 +248,6 @@
         </setting>
         <setting id="openai_api_key" type="string" label="33060">
           <level>0</level>
-          <default></default>
           <control type="edit" format="string"></control>
         </setting>
         <setting id="openai_model" type="string" label="33061">
@@ -303,7 +298,6 @@
         </setting>
         <setting id="last_used_subtitle_dir" type="string" label="">
           <level>100</level>
-          <default></default>
           <visible>false</visible>
           <control type="edit" format="string"></control>
         </setting>
