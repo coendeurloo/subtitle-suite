@@ -3987,7 +3987,6 @@ def _download_lucky_selected_candidate(video_dir, video_basename, slot, selected
       ),
       LOG_WARNING
     )
-    _notify(__language__(33193), NOTIFY_WARNING)
     return ''
 
 def _offer_lucky_recovery_actions(missing_text):
@@ -4867,6 +4866,10 @@ def _lucky_slot_label(slot):
     return label
   return 'Target'
 
+def _notify_lucky_missing_language_subtitles(language_label):
+  label = _as_text(language_label).strip() or 'requested'
+  _notify("Couldn't find any %s subtitles." % (label), NOTIFY_INFO, timeout=5500)
+
 def _build_lucky_single_result_summary(slot, english_preview_tested=False, english_preview_in_sync=False, smartsync_applied=False, overall_success=True):
   lines = []
   if english_preview_tested:
@@ -5649,6 +5652,7 @@ def _run_i_feel_lucky_single_flow():
 
     if not subtitle1:
       _log('i feel lucky single stop: missing=%s' % (slot.get('label', slot.get('code', 'target'))), LOG_WARNING)
+      _notify_lucky_missing_language_subtitles(slot.get('label', slot.get('code', 'target')))
       _close_progress(progress)
       progress = None
       missing_message = __language__(33281) % (slot.get('label', slot.get('code', 'target')))
@@ -6118,8 +6122,10 @@ def _run_i_feel_lucky_flow():
       missing_labels = []
       if not subtitle1:
         missing_labels.append(slots[0].get('label', slots[0].get('code', '')))
+        _notify_lucky_missing_language_subtitles(slots[0].get('label', slots[0].get('code', '')))
       if not subtitle2:
         missing_labels.append(slots[1].get('label', slots[1].get('code', '')))
+        _notify_lucky_missing_language_subtitles(slots[1].get('label', slots[1].get('code', '')))
       missing_text = ', '.join([label for label in missing_labels if label]).strip()
       if not missing_text:
         missing_text = 'unknown'
