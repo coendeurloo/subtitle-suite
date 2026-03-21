@@ -4,6 +4,7 @@
        version="2.5.0"
        provider-name="coendeurloo">
   <requires>
+      <import addon="xbmc.python" version="3.0.0"/>
       <import addon="script.module.pysubs2" version="0.1.0"/>
       <import addon="script.module.chardet" />
   </requires>
@@ -88,6 +89,6 @@ v2.0.0 (2026-03-10)
 	</news>
     <platform>all</platform>
     <license>GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007</license>
-    <source>https://github.com/coendeurloo/dual-subtitles</source>
+    <source>https://github.com/coendeurloo/subtitle-suite</source>
   </extension>
 </addon>

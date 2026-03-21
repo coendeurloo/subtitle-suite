@@ -25,17 +25,9 @@ try:
 except Exception:
   from_bytes = None
 
-try:
-  from urllib.request import Request, urlopen
-  from urllib.error import HTTPError, URLError
-except ImportError:
-  from urllib2 import Request, urlopen, HTTPError, URLError
-
-if sys.version_info[0] == 2:
-    p2 = True
-else:
-    unicode = str
-    p2 = False
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs
 
 from resources.lib.dualsubs import mergesubs
 from resources.lib import smartsync
@@ -48,10 +40,8 @@ try:
   from resources.lib.downloadpicker import DownloadPickerDialog
 except Exception:
   DownloadPickerDialog = None
-try:
-  from resources.lib.luckypreview import LuckyPreviewDialog
-except Exception:
-  LuckyPreviewDialog = None
+# TODO: LuckyPreviewDialog is a planned feature; luckypreview.py does not exist yet.
+LuckyPreviewDialog = None
 
 __addon__ = xbmcaddon.Addon()
 __author__     = __addon__.getAddonInfo('author')
@@ -79,38 +69,12 @@ DOWNLOAD_TIMEOUT_SECONDS = 45
 OPENAI_TRANSLATION_BATCH_SIZE = 20
 OPENAI_REQUEST_TIMEOUT_SECONDS = 180
 FENCED_JSON_REGEX = re.compile(r'^```(?:json)?\s*(.*?)\s*```$', re.DOTALL)
-KNOWN_SUBTITLE_LANGUAGE_CODES = set([
-  'af', 'sq', 'ar', 'hy', 'az', 'eu', 'be', 'bn', 'bs', 'bg', 'ca', 'zh', 'hr', 'cs', 'da',
-  'nl', 'en', 'et', 'fi', 'fr', 'gl', 'ka', 'de', 'el', 'he', 'hi', 'hu', 'is', 'id', 'ga',
-  'it', 'ja', 'kk', 'ko', 'lv', 'lt', 'mk', 'ms', 'no', 'fa', 'pl', 'pt', 'ro', 'ru', 'sr',
-  'sk', 'sl', 'es', 'sv', 'ta', 'th', 'tr', 'uk', 'ur', 'vi', 'cy'
-])
-ISO3_TO_ISO2_LANGUAGE_CODES = {
-  'afr': 'af', 'sqi': 'sq', 'alb': 'sq', 'ara': 'ar', 'hye': 'hy', 'arm': 'hy', 'aze': 'az',
-  'eus': 'eu', 'baq': 'eu', 'bel': 'be', 'ben': 'bn', 'bos': 'bs', 'bul': 'bg', 'cat': 'ca',
-  'zho': 'zh', 'chi': 'zh', 'hrv': 'hr', 'ces': 'cs', 'cze': 'cs', 'dan': 'da', 'nld': 'nl',
-  'dut': 'nl', 'eng': 'en', 'est': 'et', 'fin': 'fi', 'fra': 'fr', 'fre': 'fr', 'glg': 'gl',
-  'kat': 'ka', 'geo': 'ka', 'deu': 'de', 'ger': 'de', 'ell': 'el', 'gre': 'el', 'heb': 'he',
-  'hin': 'hi', 'hun': 'hu', 'isl': 'is', 'ice': 'is', 'ind': 'id', 'gle': 'ga', 'ita': 'it',
-  'jpn': 'ja', 'kaz': 'kk', 'kor': 'ko', 'lav': 'lv', 'lit': 'lt', 'mkd': 'mk', 'mac': 'mk',
-  'msa': 'ms', 'may': 'ms', 'nor': 'no', 'fas': 'fa', 'per': 'fa', 'pol': 'pl', 'por': 'pt',
-  'ron': 'ro', 'rum': 'ro', 'rus': 'ru', 'srp': 'sr', 'slk': 'sk', 'slo': 'sk', 'slv': 'sl',
-  'spa': 'es', 'swe': 'sv', 'tam': 'ta', 'tha': 'th', 'tur': 'tr', 'ukr': 'uk', 'urd': 'ur',
-  'vie': 'vi', 'cym': 'cy', 'wel': 'cy'
-}
-LANGUAGE_CODE_ALIASES = {
-  'af': ['afr'], 'sq': ['sqi', 'alb'], 'ar': ['ara'], 'hy': ['hye', 'arm'], 'az': ['aze'],
-  'eu': ['eus', 'baq'], 'be': ['bel'], 'bn': ['ben'], 'bs': ['bos'], 'bg': ['bul'],
-  'ca': ['cat'], 'zh': ['zho', 'chi'], 'hr': ['hrv'], 'cs': ['ces', 'cze'], 'da': ['dan'],
-  'nl': ['nld', 'dut'], 'en': ['eng'], 'et': ['est'], 'fi': ['fin'], 'fr': ['fra', 'fre'],
-  'gl': ['glg'], 'ka': ['kat', 'geo'], 'de': ['deu', 'ger'], 'el': ['ell', 'gre'],
-  'he': ['heb'], 'hi': ['hin'], 'hu': ['hun'], 'is': ['isl', 'ice'], 'id': ['ind'],
-  'ga': ['gle'], 'it': ['ita'], 'ja': ['jpn'], 'kk': ['kaz'], 'ko': ['kor'], 'lv': ['lav'],
-  'lt': ['lit'], 'mk': ['mkd', 'mac'], 'ms': ['msa', 'may'], 'no': ['nor'], 'fa': ['fas', 'per'],
-  'pl': ['pol'], 'pt': ['por'], 'ro': ['ron', 'rum'], 'ru': ['rus'], 'sr': ['srp'],
-  'sk': ['slk', 'slo'], 'sl': ['slv'], 'es': ['spa'], 'sv': ['swe'], 'ta': ['tam'],
-  'th': ['tha'], 'tr': ['tur'], 'uk': ['ukr'], 'ur': ['urd'], 'vi': ['vie'], 'cy': ['cym', 'wel']
-}
+# Language code data lives in resources/lib/languages.py — imported below.
+from resources.lib.languages import (
+  ISO3_TO_ISO2 as ISO3_TO_ISO2_LANGUAGE_CODES,
+  LANGUAGE_CODE_ALIASES,
+  KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
+)
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
@@ -167,33 +131,24 @@ LANGUAGE_FLAG_EMOJI = {
   'uk': u'\U0001F1FA\U0001F1E6',
 }
 
-try:
-    translatePath = xbmcvfs.translatePath
-except AttributeError:
-    translatePath = xbmc.translatePath
+translatePath = xbmcvfs.translatePath
 
 __cwd__        = translatePath(__addon__.getAddonInfo('path'))
-if p2:
-    __cwd__ = __cwd__.decode("utf-8")
 
 __resource__   = translatePath(os.path.join(__cwd__, 'resources', 'lib'))
-if p2:
-    __resource__ = __resource__.decode("utf-8")
 
 __profile__    = translatePath(__addon__.getAddonInfo('profile'))
-if p2:
-    __profile__ = __profile__.decode("utf-8")
 
 def _bootstrap_log(message, level=LOG_INFO):
   try:
     xbmc.log('[%s] %s' % (__scriptid__, message), level)
-  except:
+  except Exception:
     pass
 
 def _listdir_safe(path):
   try:
     return xbmcvfs.listdir(path)
-  except:
+  except Exception:
     return ([], [])
 
 def _copy_tree(src, dst):
@@ -242,20 +197,12 @@ def _migrate_legacy_profile_if_needed():
 _migrate_legacy_profile_if_needed()
 
 __temp__       = translatePath(os.path.join(__profile__, 'temp', ''))
-if p2:
-    __temp__ = __temp__.decode("utf-8")
 
 __media__      = translatePath(os.path.join(__cwd__, 'resources', 'media'))
-if p2:
-    __media__ = __media__.decode("utf-8")
 
 __flags__      = translatePath(os.path.join(__media__, 'flags'))
-if p2:
-    __flags__ = __flags__.decode("utf-8")
 
 __syncicons__  = translatePath(os.path.join(__media__, 'sync'))
-if p2:
-    __syncicons__ = __syncicons__.decode("utf-8")
 
 DOWNLOAD_PICKER_XML = 'DualSubtitlesDownloadPicker.xml'
 LUCKY_PREVIEW_XML = 'DualSubtitlesLuckyPreview.xml'
@@ -277,7 +224,7 @@ try:
   if xbmc.getCondVisibility("Window.IsActive(subtitlesearch)"):
       window = xbmcgui.Window(10153)
       window.getControl(160).setEnableCondition('!String.IsEqual(Control.GetLabel(100),"{}")'.format(__scriptname__))
-except:
+except Exception:
   window = ''
 
 def AddItem(name, url):
@@ -297,28 +244,12 @@ def Search():
   AddItem(__language__(33008), "plugin://%s/?action=settings" % (__scriptid__))
 
 def get_params(string=""):
-  param = {}
-  if string == "":
-    if len(sys.argv) > 2:
-      paramstring = sys.argv[2]
-    else:
-      paramstring = ""
-  else:
-    paramstring = string
-  if len(paramstring) >= 2:
-    params = paramstring
-    cleanedparams = params.replace('?', '')
-    if params[len(params) - 1] == '/':
-      params = params[0:len(params) - 2]
-    pairsofparams = cleanedparams.split('&')
-    param = {}
-    for i in range(len(pairsofparams)):
-      splitparams = {}
-      splitparams = pairsofparams[i].split('=')
-      if len(splitparams) == 2:
-        param[splitparams[0]] = splitparams[1]
-
-  return param
+  """Parse the Kodi plugin URL query string into a flat key→value dict."""
+  paramstring = string if string else (sys.argv[2] if len(sys.argv) > 2 else "")
+  paramstring = paramstring.lstrip('?')
+  parsed = parse_qs(paramstring, keep_blank_values=False)
+  # parse_qs returns lists; unwrap to single values for backwards compatibility.
+  return {k: v[0] for k, v in parsed.items() if v}
 
 params = get_params()
 
@@ -346,16 +277,16 @@ def _equal_text(setting_value, message_id):
 def _notify(message, icon=NOTIFY_INFO, timeout=4000):
   try:
     __msg_box__.notification(__scriptname__, message, icon, timeout)
-  except:
+  except Exception:
     try:
       xbmc.executebuiltin(u'Notification(%s,%s)' % (__scriptname__, message))
-    except:
+    except Exception:
       pass
 
 def _log(message, level=LOG_INFO):
   try:
     xbmc.log('[%s] %s' % (__scriptid__, message), level)
-  except:
+  except Exception:
     pass
 
 def _is_disallowed_browse_path(path):
@@ -369,14 +300,14 @@ def _exists_dir(path):
   try:
     if xbmcvfs.exists(path):
       return True
-  except:
+  except Exception:
     pass
 
   if path and not path.endswith('/'):
     try:
       if xbmcvfs.exists(path + '/'):
         return True
-    except:
+    except Exception:
       pass
 
   return False
@@ -424,7 +355,7 @@ def _is_second_subtitle_required():
 def _current_video_context():
   try:
     video_file = xbmc.Player().getPlayingFile()
-  except:
+  except Exception:
     video_file = ''
 
   if not video_file:
@@ -598,21 +529,15 @@ def _language_label(setting_id):
 def _as_text(value):
   if value is None:
     return u''
-
   try:
-    if p2:
-      if isinstance(value, unicode):
-        return value
-      return value.decode('utf-8', 'replace')
     if isinstance(value, bytes):
       return value.decode('utf-8', 'replace')
-  except:
+  except Exception:
     pass
-
   try:
-    return unicode(value)
-  except:
     return str(value)
+  except Exception:
+    return ''
 
 def _canonicalize_language_code(language_code):
   normalized = _as_text(language_code).strip()
@@ -663,12 +588,6 @@ def _language_tail_matches(tail_lower, language_code, strict):
 def _to_utf8_bytes(text):
   if text is None:
     text = ''
-
-  if p2:
-    if isinstance(text, unicode):
-      return text.encode('utf-8')
-    return text
-
   if isinstance(text, bytes):
     return text
   return _as_text(text).encode('utf-8')
@@ -677,7 +596,7 @@ def _get_int_setting(setting_id, default_value, minimum_value, maximum_value):
   value = __addon__.getSetting(setting_id)
   try:
     parsed = int(value)
-  except:
+  except Exception:
     parsed = default_value
 
   if parsed < minimum_value:
@@ -689,7 +608,7 @@ def _get_int_setting(setting_id, default_value, minimum_value, maximum_value):
 def _get_bool_setting(setting_id, default_value=False):
   try:
     setting = __addon__.getSetting(setting_id)
-  except:
+  except Exception:
     return default_value
   if setting == '':
     return default_value
@@ -781,7 +700,11 @@ def _is_smart_sync_enabled():
   return setting == 'true'
 
 def _is_lucky_download_enabled():
-  return _get_bool_setting('lucky_enable_download', True)
+  # Lucky download follows the main download toggle; always enabled by default.
+  lucky_explicit = __addon__.getSetting('lucky_enable_download')
+  if lucky_explicit in ('true', 'false'):
+    return lucky_explicit == 'true'
+  return _is_subtitle_download_enabled() if __addon__.getSetting('enable_subtitle_download') != '' else True
 
 def _is_lucky_smartsync_enabled():
   return _get_bool_setting('lucky_enable_smartsync', True)
@@ -809,7 +732,7 @@ def _get_smart_sync_mode():
 def _get_openai_api_key():
   try:
     return __addon__.getSetting('openai_api_key').strip()
-  except:
+  except Exception:
     return ''
 
 def _get_openai_model():
@@ -836,18 +759,18 @@ def _progress_update(progress, percent, line1='', line2=''):
   try:
     progress.update(percent, line1, line2)
     return
-  except:
+  except Exception:
     pass
 
   try:
     progress.update(percent, line1)
     return
-  except:
+  except Exception:
     pass
 
   try:
     progress.update(percent)
-  except:
+  except Exception:
     pass
 
 def _extract_json_payload(raw_content):
@@ -916,7 +839,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     body = ''
     try:
       body = _as_text(exc.read())
-    except:
+    except Exception:
       pass
     _log('openai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
     raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
@@ -1035,7 +958,7 @@ def _list_srt_files(folder_path, include_generated=True):
 
   try:
     file_names = xbmcvfs.listdir(folder_path)[1]
-  except:
+  except Exception:
     return []
 
   candidates = []
@@ -1104,13 +1027,13 @@ def _detect_language_from_content(path):
   try:
     file_handle = xbmcvfs.File(path)
     raw = file_handle.read(max_read)
-  except:
+  except Exception:
     raw = None
   finally:
     try:
       if file_handle:
         file_handle.close()
-    except:
+    except Exception:
       pass
 
   text = _as_text(raw).lower()
@@ -1198,7 +1121,7 @@ def _get_dualsubtitles_work_dir_for_path(path):
   work_dir = os.path.join(base_dir, 'DualSubtitles')
   try:
     xbmcvfs.mkdirs(work_dir)
-  except:
+  except Exception:
     pass
   _set_writable_permissions_in_dir(work_dir)
   return work_dir
@@ -1209,7 +1132,7 @@ def _set_writable_permissions(path, is_directory=False):
   try:
     mode = int('777', 8) if is_directory else int('666', 8)
     os.chmod(path, mode)
-  except:
+  except Exception:
     pass
 
 def _set_writable_permissions_in_dir(directory_path):
@@ -1220,7 +1143,7 @@ def _set_writable_permissions_in_dir(directory_path):
     _, files = xbmcvfs.listdir(directory_path)
     for file_name in files:
       _set_writable_permissions(os.path.join(directory_path, file_name), is_directory=False)
-  except:
+  except Exception:
     pass
 
 def _dualsubs_work_temp_path(target_path, extension):
@@ -1239,7 +1162,7 @@ def _replace_file_with_dualsubs_backup(source_path, target_path, backup_existing
   backup_path = ''
   try:
     had_existing = xbmcvfs.exists(target_path)
-  except:
+  except Exception:
     had_existing = False
 
   if backup_existing and had_existing:
@@ -1257,7 +1180,7 @@ def _replace_file_with_dualsubs_backup(source_path, target_path, backup_existing
     if backup_path and not xbmcvfs.exists(target_path):
       try:
         xbmcvfs.copy(backup_path, target_path)
-      except:
+      except Exception:
         pass
     raise RuntimeError('target write failed')
 
@@ -1302,7 +1225,7 @@ def _cleanup_generated_movie_sidecars(video_dir, video_basename):
 
   try:
     file_names = xbmcvfs.listdir(video_dir)[1]
-  except:
+  except Exception:
     return
 
   for file_name in file_names:
@@ -1335,7 +1258,7 @@ def _create_smart_sync_progress():
   try:
     progress = xbmcgui.DialogProgress()
     progress.create(__scriptname__, __language__(33134))
-  except:
+  except Exception:
     progress = None
   return progress
 
@@ -1344,7 +1267,7 @@ def _close_progress(progress):
     return
   try:
     progress.close()
-  except:
+  except Exception:
     pass
 
 def _set_smart_sync_progress(progress, percent, message_id):
@@ -1413,7 +1336,7 @@ def _unique_paths(paths):
 def _safe_basename(path):
   try:
     return os.path.basename(path)
-  except:
+  except Exception:
     return path
 
 def _subtitle_menu_label(path, compact=False):
@@ -1436,7 +1359,7 @@ def _load_subtitle_for_processing(subtitle_path):
 
   try:
     subtitle_data = pysubs2.load(local_copy, encoding=encoding)
-  except:
+  except Exception:
     subtitle_data = pysubs2.load(local_copy)
   return subtitle_data, local_copy
 
@@ -1579,7 +1502,7 @@ def _openai_find_smart_sync_anchors(reference_samples, target_samples, api_key, 
     body = ''
     try:
       body = _as_text(exc.read())
-    except:
+    except Exception:
       pass
     _log('smart sync ai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
     raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
@@ -1621,7 +1544,7 @@ def _openai_find_smart_sync_anchors(reference_samples, target_samples, api_key, 
         'target_id': int(pair.get('target_id')),
         'reference_id': int(pair.get('reference_id')),
       })
-    except:
+    except Exception:
       continue
 
   if len(normalized_pairs) == 0:
@@ -2001,7 +1924,7 @@ def _run_manual_smart_sync_action():
 def _load_pysubs2():
   try:
     import pysubs2
-  except:
+  except Exception:
     from lib import pysubs2
   return pysubs2
 
@@ -2024,7 +1947,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
     try:
       subtitle_data = pysubs2.load(temp_source, encoding=encoding)
-    except:
+    except Exception:
       subtitle_data = pysubs2.load(temp_source)
 
     subtitle_lines = []
@@ -2047,7 +1970,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           raise RuntimeError(__language__(33072))
       except RuntimeError:
         raise
-      except:
+      except Exception:
         pass
 
       chunk_lines = subtitle_lines[index:index + batch_size]
@@ -2087,7 +2010,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     if progress is not None:
       try:
         progress.close()
-      except:
+      except Exception:
         pass
     if temp_source:
       xbmcvfs.delete(temp_source)
@@ -2830,7 +2753,7 @@ def _sync_tier_hint(sync_tier):
 def _provider_stars(result):
   try:
     provider_score = int(result.get('provider_score', 0))
-  except:
+  except Exception:
     provider_score = 0
 
   filled = int(round(float(provider_score) / 20.0))
@@ -2916,7 +2839,7 @@ def _build_download_window_listitem(result):
 
   try:
     item = xbmcgui.ListItem(label=release_name, label2=language_name)
-  except:
+  except Exception:
     item = xbmcgui.ListItem(release_name)
 
   item.setProperty('release_line', release_name)
@@ -2933,13 +2856,13 @@ def _build_download_window_listitem(result):
       'icon': flag_icon,
       'thumb': sync_icon,
     })
-  except:
+  except Exception:
     pass
 
   try:
     item.setProperty('sync', 'true' if sync_tier in ['exact', 'likely'] else 'false')
     item.setProperty('hearing_imp', 'true' if result.get('hearing_impaired') else 'false')
-  except:
+  except Exception:
     pass
   return item
 
@@ -2955,9 +2878,9 @@ def _select_download_result_dialog_select(results, language_label):
   except TypeError:
     try:
       return __msg_box__.select(__language__(33178) % (language_label), option_items)
-    except:
+    except Exception:
       return __msg_box__.select(__language__(33178) % (language_label), option_labels)
-  except:
+  except Exception:
     return __msg_box__.select(__language__(33178) % (language_label), option_labels)
 
 def _select_download_result_with_custom_window(results, language_label, video_basename):
@@ -2997,16 +2920,16 @@ def _build_download_result_listitem(result):
   label2 = _download_result_detail_label(result)
   try:
     item = xbmcgui.ListItem(label=label, label2=label2)
-  except:
+  except Exception:
     item = xbmcgui.ListItem(label)
     try:
       item.setLabel2(label2)
-    except:
+    except Exception:
       pass
 
   try:
     provider_score = int(result.get('provider_score', 0))
-  except:
+  except Exception:
     provider_score = 0
   provider_rating = int(round(float(provider_score) / 20.0))
   if provider_rating < 0:
@@ -3019,14 +2942,14 @@ def _build_download_result_listitem(result):
       'icon': str(provider_rating),
       'thumb': language_code.lower(),
     })
-  except:
+  except Exception:
     pass
 
   try:
     sync_tier = _as_text(result.get('sync_tier', '')).lower()
     item.setProperty('sync', 'true' if sync_tier in ['exact', 'likely'] else 'false')
     item.setProperty('hearing_imp', 'true' if result.get('hearing_impaired') else 'false')
-  except:
+  except Exception:
     pass
   return item
 
@@ -3057,7 +2980,7 @@ def _language_display_name(language_code):
     name = xbmc.convertLanguage(code, xbmc.ENGLISH_NAME)
     if name and name.strip() and name.lower().strip() != code:
       return name
-  except:
+  except Exception:
     pass
   return code.upper()
 
@@ -3093,11 +3016,11 @@ def _build_download_browser_listitem(result):
 
   try:
     item = xbmcgui.ListItem(label=label, label2=label2, offscreen=True)
-  except:
+  except Exception:
     item = xbmcgui.ListItem(label)
     try:
       item.setLabel2(label2)
-    except:
+    except Exception:
       pass
 
   provider_score = int(result.get('provider_score', 0))
@@ -3112,7 +3035,7 @@ def _build_download_browser_listitem(result):
       'icon': str(provider_rating),
       'thumb': language_code.lower(),
     })
-  except:
+  except Exception:
     pass
 
   sync_tier = _as_text(result.get('sync_tier', '')).lower()
@@ -3120,7 +3043,7 @@ def _build_download_browser_listitem(result):
   try:
     item.setProperty('sync', sync_value)
     item.setProperty('hearing_imp', 'true' if result.get('hearing_impaired') else 'false')
-  except:
+  except Exception:
     pass
   return item
 
@@ -3150,7 +3073,7 @@ def _select_download_language():
   custom_code = ''
   try:
     custom_code = __msg_box__.input(__language__(33196))
-  except:
+  except Exception:
     custom_code = ''
   normalized = _canonicalize_language_code(custom_code)
   if not normalized:
@@ -3366,7 +3289,7 @@ def _write_download_payload_to_target(context, language_code, selected_result):
     try:
       if xbmcvfs.exists(temp_subtitle):
         xbmcvfs.delete(temp_subtitle)
-    except:
+    except Exception:
       pass
 
 def _notify_top_download_candidate(results):
@@ -3531,7 +3454,7 @@ def _download_best_result_for_language(
   if request_delay_seconds and request_delay_seconds > 0:
     try:
       time.sleep(float(request_delay_seconds))
-    except:
+    except Exception:
       pass
 
   try:
@@ -3595,14 +3518,14 @@ def _download_best_result_for_language(
 
   try:
     attempt_limit = int(max_write_attempts)
-  except:
+  except Exception:
     attempt_limit = 5
   if attempt_limit < 1:
     attempt_limit = 1
   attempt_limit = min(attempt_limit, len(candidate_results))
   try:
     provider_attempt_limit = int(max_provider_attempts)
-  except:
+  except Exception:
     provider_attempt_limit = 2
   if provider_attempt_limit < 1:
     provider_attempt_limit = 1
@@ -3667,7 +3590,7 @@ def _download_best_result_for_language(
       if _is_retryable_download_error(exc):
         try:
           time.sleep(float(retry_delay_seconds) * float(provider_attempt_count))
-        except:
+        except Exception:
           pass
       continue
     except Exception as exc:
@@ -3686,7 +3609,7 @@ def _download_best_result_for_language(
       if _is_retryable_download_error(exc):
         try:
           time.sleep(float(retry_delay_seconds) * float(provider_attempt_count))
-        except:
+        except Exception:
           pass
       continue
 
@@ -4154,7 +4077,7 @@ def _open_manual_download_results_browser(video_dir, video_basename, language_co
 
   try:
     xbmcplugin.setContent(handle, 'files')
-  except:
+  except Exception:
     pass
 
 def _run_manual_download_action():
@@ -4185,7 +4108,7 @@ def _run_manual_download_pick_action():
 
   try:
     result_index = int(index_raw)
-  except:
+  except Exception:
     _notify(__language__(33193), NOTIFY_WARNING)
     return
 
@@ -4317,7 +4240,7 @@ def _find_subtitle_matches(video_dir, video_basename, language_code, strict):
 
   try:
     files = xbmcvfs.listdir(video_dir)[1]
-  except:
+  except Exception:
     return []
 
   matches = []
@@ -4439,7 +4362,7 @@ def _remember_last_used_dir(path):
 
   try:
     __addon__.setSetting('last_used_subtitle_dir', path)
-  except:
+  except Exception:
     pass
 
 def _prepare_and_merge_subtitles(subs):
@@ -4533,7 +4456,7 @@ def _finalize_selected_subtitle_paths(subtitle1, subtitle2, subtitle1_dir='', sm
       try:
         if temp_sync_path and temp_sync_path.startswith(__temp__):
           xbmcvfs.delete(temp_sync_path)
-      except:
+      except Exception:
         pass
 
   Download(finalfile)
@@ -4807,6 +4730,10 @@ def _first_spoken_subtitle_start_ms(subtitle_path):
       text = _normalize_subtitle_preview_text(getattr(event, 'text', ''))
       if not text:
         continue
+      # Skip non-spoken cues: music symbols, sound effects, and punctuation-only lines.
+      stripped = re.sub(r'[\u266a\u266b\u266c\u266d\u266e\u266f\u2669#*\-\s]', '', text)
+      if not stripped:
+        continue
       if re.match(r'^[\W_]+$', text):
         continue
       try:
@@ -4980,46 +4907,47 @@ def _focus_video_for_lucky_preview(state=None):
     pass
 
 def _show_lucky_english_preview_dialog(english_reference_path):
-  if LuckyPreviewDialog is None:
+  # Use a select dialog with 3 explicit options so the UI is identical on
+  # every platform (Windows, CoreELEC, LibreELEC, etc.).  The old yesno
+  # fallback rendered differently per skin/platform.
+  _PREVIEW_OPTIONS = [
+    __language__(33271),  # "In Sync"
+    __language__(33273),  # "Not In Sync"
+    __language__(33133),  # "Cancel"
+  ]
+  _PREVIEW_MAP = {0: 'sync', 1: 'not_sync', 2: 'cancel'}
+
+  if LuckyPreviewDialog is not None:
+    subtitle_name = os.path.basename(_as_text(english_reference_path).strip())
+    if not subtitle_name:
+      subtitle_name = _as_text(english_reference_path).strip()
     try:
-      if __msg_box__.yesno(__language__(33230), __language__(33269)):
-        return 'sync'
-      return 'not_sync'
-    except Exception:
-      return 'cancel'
+      dialog = LuckyPreviewDialog(
+        LUCKY_PREVIEW_XML,
+        __cwd__,
+        'default',
+        '1080i',
+        heading=__language__(33230),
+        subtitle=subtitle_name,
+        message=__language__(33272),
+        sync_label=__language__(33271),
+        not_sync_label=__language__(33273),
+        cancel_label=__language__(33133)
+      )
+      dialog.doModal()
+      selection = _as_text(getattr(dialog, 'result', '')).lower().strip()
+      del dialog
+      if selection in ('sync', 'not_sync', 'cancel'):
+        return selection
+    except Exception as exc:
+      _log('lucky preview dialog failed (%s), using select fallback' % (exc), LOG_WARNING)
 
-  subtitle_name = os.path.basename(_as_text(english_reference_path).strip())
-  if not subtitle_name:
-    subtitle_name = _as_text(english_reference_path).strip()
-
+  # Consistent 3-option select dialog — looks identical on all platforms.
   try:
-    dialog = LuckyPreviewDialog(
-      LUCKY_PREVIEW_XML,
-      __cwd__,
-      'default',
-      '1080i',
-      heading=__language__(33230),
-      subtitle=subtitle_name,
-      message=__language__(33272),
-      sync_label=__language__(33271),
-      not_sync_label=__language__(33273),
-      cancel_label=__language__(33133)
-    )
-    dialog.doModal()
-    selection = _as_text(getattr(dialog, 'result', '')).lower().strip()
-    del dialog
-  except Exception as exc:
-    _log('lucky preview dialog failed (%s), using yes/no fallback' % (exc), LOG_WARNING)
-    try:
-      if __msg_box__.yesno(__language__(33230), __language__(33269)):
-        return 'sync'
-      return 'not_sync'
-    except Exception:
-      return 'cancel'
-
-  if selection in ['sync', 'not_sync', 'cancel']:
-    return selection
-  return 'cancel'
+    chosen = __msg_box__.select(__language__(33269), _PREVIEW_OPTIONS)
+    return _PREVIEW_MAP.get(chosen, 'cancel')
+  except Exception:
+    return 'cancel'
 
 def _run_lucky_translate_missing_slots(
   slots,
@@ -5098,8 +5026,24 @@ def _cleanup_lucky_temp_sync_files(temp_paths):
     try:
       if temp_sync_path and temp_sync_path.startswith(__temp__):
         xbmcvfs.delete(temp_sync_path)
-    except:
+    except Exception:
       pass
+
+def _cleanup_lucky_downloaded_files(slots):
+  """Remove downloaded subtitle files when the Lucky flow fails before finalizing."""
+  for slot in (slots if isinstance(slots, list) else [slots]):
+    origin = _as_text(slot.get('origin', '')).lower()
+    path = _as_text(slot.get('path', '')).strip()
+    if not path or not origin:
+      continue
+    # Only clean up files we downloaded or generated — never remove local_exact files.
+    if origin.startswith('download_') or origin in ('smartsync', 'translated'):
+      try:
+        if xbmcvfs.exists(path):
+          xbmcvfs.delete(path)
+          _log('lucky cleanup removed: %s (origin=%s)' % (path, origin), LOG_INFO)
+      except Exception:
+        pass
 
 def _run_i_feel_lucky_single_flow():
   video_dir, video_basename = _current_video_context()
@@ -5118,10 +5062,14 @@ def _run_i_feel_lucky_single_flow():
   progress = _create_lucky_progress()
   smart_sync_temp_files = []
   lucky_cancel_token = '__lucky_cancelled__'
+  lucky_timeout_token = '__lucky_timeout__'
   english_preview_confirmed_sync = False
   english_preview_tested = False
   smartsync_applied_any = False
   status_lines = []
+  search_phase_start = time.time()
+  search_phase_timeout_seconds = 90
+  search_phase_timeout_active = True
 
   def _status(line):
     text = _as_text(line).strip()
@@ -5131,9 +5079,18 @@ def _run_i_feel_lucky_single_flow():
       return
     status_lines.append(text)
 
+  def _check_search_timeout():
+    if not search_phase_timeout_active:
+      return
+    elapsed = time.time() - search_phase_start
+    if elapsed >= search_phase_timeout_seconds:
+      _log('lucky single search phase timeout after %.1f seconds' % (elapsed), LOG_WARNING)
+      raise RuntimeError(lucky_timeout_token)
+
   def _step(percent, line1='', line2=''):
     if not _update_lucky_progress(progress, percent, line1, line2):
       raise RuntimeError(lucky_cancel_token)
+    _check_search_timeout()
 
   def _attempt_download(required_tiers, fallback_to_top, percent, status_label, delay_seconds):
     def _progress_line(message):
@@ -5224,22 +5181,8 @@ def _run_i_feel_lucky_single_flow():
         _status('No reliable English reference found.')
         _step(52, __language__(33246))
 
-    if not slot.get('path') and _is_lucky_download_enabled() and english_reference_path:
-      status_line = __language__(33259) % (slot['label'])
-      _step(58, status_line)
-      downloaded = _attempt_download(
-        required_tiers=['exact', 'likely'],
-        fallback_to_top=False,
-        percent=62,
-        status_label=status_line,
-        delay_seconds=download_request_delay_seconds
-      )
-      download_request_delay_seconds = 1.15
-      if downloaded:
-        release_name = _as_text(slot.get('last_release', '')).strip() or os.path.basename(_as_text(slot.get('path', '')))
-        tier_text = _as_text(slot.get('last_tier', 'unknown')).upper()
-        _status('%s: downloaded %s candidate after English reference (%s).' % (slot['label'], tier_text, release_name))
-        _step(66, __language__(33242) % (slot['label']), '%s [%s]' % (release_name, tier_text))
+    # NOTE: Redundant second download attempt removed — same tiers/params as
+    # the first attempt would not yield new results.
 
     can_use_reference_for_sync = english_reference_tier in ['exact', 'likely']
     should_test_english_reference = False
@@ -5293,7 +5236,7 @@ def _run_i_feel_lucky_single_flow():
       slot_path = slot.get('path')
       if slot_path and slot_path.lower() != english_reference_path.lower():
         _step(72, __language__(33262) % (slot['label']))
-        force_sync_apply = bool(english_preview_confirmed_sync and _as_text(slot.get('origin', '')).lower().startswith('download_'))
+        force_sync_apply = bool(english_preview_confirmed_sync)
         sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, slot_path, force_apply=force_sync_apply)
         if sync_apply.get('applied'):
           slot['path'] = sync_apply.get('path') or slot_path
@@ -5320,6 +5263,10 @@ def _run_i_feel_lucky_single_flow():
         % (slot.get('code', ''), len(unknown_candidates)),
         LOG_INFO
       )
+
+    # Disable search-phase timeout before AI translation — translation can
+    # legitimately take several minutes for long subtitle files.
+    search_phase_timeout_active = False
 
     if not slot.get('path') and _is_lucky_ai_translate_enabled() and len(unknown_candidates) == 0:
       def _translation_progress(message):
@@ -5465,8 +5412,27 @@ def _run_i_feel_lucky_single_flow():
         )
       )
   except RuntimeError as exc:
-    if _as_text(exc) == lucky_cancel_token:
+    exc_text = _as_text(exc)
+    if exc_text == lucky_cancel_token:
       _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+      _cleanup_lucky_downloaded_files([slot])
+      _show_lucky_center_summary(
+        __language__(33230),
+        _build_lucky_single_result_summary(
+          slot,
+          english_preview_tested=english_preview_tested,
+          english_preview_in_sync=english_preview_confirmed_sync,
+          smartsync_applied=smartsync_applied_any,
+          overall_success=False
+        )
+      )
+      return
+    if exc_text == lucky_timeout_token:
+      _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+      _cleanup_lucky_downloaded_files([slot])
+      _log('i feel lucky single search phase timed out after %d seconds' % (search_phase_timeout_seconds), LOG_WARNING)
+      _status('Search timed out after %d seconds.' % (search_phase_timeout_seconds))
+      _close_progress(progress)
       _show_lucky_center_summary(
         __language__(33230),
         _build_lucky_single_result_summary(
@@ -5479,6 +5445,7 @@ def _run_i_feel_lucky_single_flow():
       )
       return
     _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+    _cleanup_lucky_downloaded_files([slot])
     _log('i feel lucky single runtime error: %s' % (exc), LOG_WARNING)
     _show_lucky_center_summary(
       __language__(33230),
@@ -5492,6 +5459,7 @@ def _run_i_feel_lucky_single_flow():
     )
   except Exception as exc:
     _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+    _cleanup_lucky_downloaded_files([slot])
     _log('i feel lucky single unexpected error: %s' % (exc), LOG_ERROR)
     _show_lucky_center_summary(
       __language__(33230),
@@ -5514,6 +5482,13 @@ def _run_i_feel_lucky_flow():
 
   slots = _build_lucky_target_slots()
   if len(slots) != 2:
+    # Graceful fallback: if only one preferred language is configured, run the
+    # single-subtitle flow instead of showing an error.
+    single_slot = _build_lucky_single_target_slot()
+    if single_slot and single_slot.get('code'):
+      _log('i feel lucky dual: only 1 language configured, falling back to single flow', LOG_INFO)
+      _run_i_feel_lucky_single_flow()
+      return
     _show_lucky_center_summary(__language__(33230), [__language__(33240)])
     return
 
@@ -5523,10 +5498,14 @@ def _run_i_feel_lucky_flow():
   progress = _create_lucky_progress()
   smart_sync_temp_files = []
   lucky_cancel_token = '__lucky_cancelled__'
+  lucky_timeout_token = '__lucky_timeout__'
   english_preview_confirmed_sync = False
   english_preview_tested = False
   smartsync_applied_any = False
   status_lines = []
+  search_phase_start = time.time()
+  search_phase_timeout_seconds = 90
+  search_phase_timeout_active = True
 
   def _status(line):
     text = _as_text(line).strip()
@@ -5536,9 +5515,18 @@ def _run_i_feel_lucky_flow():
       return
     status_lines.append(text)
 
+  def _check_search_timeout():
+    if not search_phase_timeout_active:
+      return
+    elapsed = time.time() - search_phase_start
+    if elapsed >= search_phase_timeout_seconds:
+      _log('lucky search phase timeout after %.1f seconds' % (elapsed), LOG_WARNING)
+      raise RuntimeError(lucky_timeout_token)
+
   def _step(percent, line1='', line2=''):
     if not _update_lucky_progress(progress, percent, line1, line2):
       raise RuntimeError(lucky_cancel_token)
+    _check_search_timeout()
 
   def _attempt_download_for_slot(slot, required_tiers, fallback_to_top, percent, status_label, delay_seconds):
     def _progress_line(message):
@@ -5634,24 +5622,9 @@ def _run_i_feel_lucky_flow():
         _status('No reliable English reference found.')
         _step(52, __language__(33246))
 
-    if _is_lucky_download_enabled() and english_reference_path:
-      for slot in _lucky_missing_slots(slots):
-        status_line = __language__(33259) % (slot['label'])
-        _step(58, status_line)
-        downloaded = _attempt_download_for_slot(
-          slot,
-          required_tiers=['exact', 'likely'],
-          fallback_to_top=False,
-          percent=62,
-          status_label=status_line,
-          delay_seconds=download_request_delay_seconds
-        )
-        download_request_delay_seconds = 1.15
-        if downloaded:
-          release_name = _as_text(slot.get('last_release', '')).strip() or os.path.basename(_as_text(slot.get('path', '')))
-          tier_text = _as_text(slot.get('last_tier', 'unknown')).upper()
-          _status('%s: downloaded %s candidate after English reference (%s).' % (slot['label'], tier_text, release_name))
-          _step(66, __language__(33242) % (slot['label']), '%s [%s]' % (release_name, tier_text))
+    # NOTE: Redundant second download attempt removed — same tiers/params as
+    # the first attempt would not yield new results.  Unknown-tier candidates
+    # are collected later in the flow and offered to the user explicitly.
 
     can_use_reference_for_sync = english_reference_tier in ['exact', 'likely']
     should_test_english_reference = False
@@ -5709,7 +5682,7 @@ def _run_i_feel_lucky_flow():
         if slot_path.lower() == english_reference_path.lower():
           continue
         _step(72, __language__(33262) % (slot['label']))
-        force_sync_apply = bool(english_preview_confirmed_sync and _as_text(slot.get('origin', '')).lower().startswith('download_'))
+        force_sync_apply = bool(english_preview_confirmed_sync)
         sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, slot_path, force_apply=force_sync_apply)
         if not sync_apply.get('applied'):
           _status('%s: SmartSync skipped (already close enough / no mismatch detected).' % (slot['label']))
@@ -5737,6 +5710,10 @@ def _run_i_feel_lucky_flow():
           % (missing_slot.get('code', ''), len(unknown_candidates)),
           LOG_INFO
         )
+
+    # Disable search-phase timeout before AI translation — translation can
+    # legitimately take several minutes for long subtitle files.
+    search_phase_timeout_active = False
 
     if len(_lucky_missing_slots(slots)) > 0 and _is_lucky_ai_translate_enabled():
       ai_slots = []
@@ -5900,8 +5877,27 @@ def _run_i_feel_lucky_flow():
         )
       )
   except RuntimeError as exc:
-    if _as_text(exc) == lucky_cancel_token:
+    exc_text = _as_text(exc)
+    if exc_text == lucky_cancel_token:
       _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+      _cleanup_lucky_downloaded_files(slots)
+      _show_lucky_center_summary(
+        __language__(33230),
+        _build_lucky_dual_result_summary(
+          slots,
+          english_preview_tested=english_preview_tested,
+          english_preview_in_sync=english_preview_confirmed_sync,
+          smartsync_applied=smartsync_applied_any,
+          overall_success=False
+        )
+      )
+      return
+    if exc_text == lucky_timeout_token:
+      _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+      _cleanup_lucky_downloaded_files(slots)
+      _log('i feel lucky search phase timed out after %d seconds' % (search_phase_timeout_seconds), LOG_WARNING)
+      _status('Search timed out after %d seconds.' % (search_phase_timeout_seconds))
+      _close_progress(progress)
       _show_lucky_center_summary(
         __language__(33230),
         _build_lucky_dual_result_summary(
@@ -5914,6 +5910,7 @@ def _run_i_feel_lucky_flow():
       )
       return
     _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+    _cleanup_lucky_downloaded_files(slots)
     _log('i feel lucky runtime error: %s' % (exc), LOG_WARNING)
     _show_lucky_center_summary(
       __language__(33230),
@@ -5927,6 +5924,7 @@ def _run_i_feel_lucky_flow():
     )
   except Exception as exc:
     _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
+    _cleanup_lucky_downloaded_files(slots)
     _log('i feel lucky unexpected error: %s' % (exc), LOG_ERROR)
     _show_lucky_center_summary(
       __language__(33230),

@@ -24,19 +24,19 @@ msgctxt "#33006"
 msgid "Choose Second Subtitle File"
 
 msgctxt "#33007"
-msgid "Zip File Does Not Contain a Supported Subtitle File"
+msgid "This zip file does not contain a supported subtitle file."
 
 msgctxt "#33008"
-msgid "Addon Settings..."
+msgid "Settings..."
 
 msgctxt "#33009"
 msgid "(Press Cancel for no second subtitle)"
 
 msgctxt "#33012"
-msgid "Preferred Language 1"
+msgid "First language"
 
 msgctxt "#33013"
-msgid "Preferred Language 2"
+msgid "Second language"
 
 msgctxt "#33014"
 msgid "Found a subtitle for %s.\nChoose %s manually?"
@@ -51,67 +51,67 @@ msgctxt "#33019"
 msgid "Matching and Fallback Behavior"
 
 msgctxt "#33020"
-msgid "No Match Behavior"
+msgid "When no subtitles are found"
 
 msgctxt "#33021"
-msgid "Partial Match Behavior"
+msgid "When only one language is found"
 
 msgctxt "#33022"
-msgid "Manual pick both subtitles"
+msgid "Let me choose both subtitles"
 
 msgctxt "#33023"
-msgid "Pick first subtitle only"
+msgid "Let me choose the first subtitle only"
 
 msgctxt "#33024"
-msgid "Stop with message"
+msgid "Stop and show a message"
 
 msgctxt "#33025"
-msgid "Ask confirmation"
+msgid "Ask me what to do"
 
 msgctxt "#33026"
-msgid "Auto use found subtitle and ask missing"
+msgid "Use what was found, ask for the rest"
 
 msgctxt "#33027"
-msgid "Ignore auto match and pick both manually"
+msgid "Ignore the match, let me choose both"
 
 msgctxt "#33028"
-msgid "Dual subtitles only (require second subtitle)"
+msgid "Always require two subtitles"
 
 msgctxt "#33029"
-msgid "Match Strictness"
+msgid "File name matching"
 
 msgctxt "#33030"
-msgid "Strict (exact video name + language code)"
+msgid "Strict — file must match the video name exactly"
 
 msgctxt "#33031"
-msgid "Relaxed (allow extra tokens before language code)"
+msgid "Flexible — also match files with extra words in the name"
 
 msgctxt "#33032"
-msgid "Start Folder Priority"
+msgid "Where to look for subtitles first"
 
 msgctxt "#33033"
-msgid "Video folder first"
+msgid "Same folder as the video"
 
 msgctxt "#33034"
-msgid "Last used folder first"
+msgid "Last folder I used"
 
 msgctxt "#33035"
-msgid "Auto-match: Found both subtitles (%s and %s)."
+msgid "Found both subtitles (%s and %s)."
 
 msgctxt "#33036"
-msgid "Auto-match: Found only %s, missing %s."
+msgid "Found only %s, missing %s."
 
 msgctxt "#33037"
-msgid "Auto-match: No preferred subtitles found."
+msgid "No matching subtitles found."
 
 msgctxt "#33038"
-msgid "Auto-match: Multiple candidates found. Switching to manual selection."
+msgid "Multiple matches found. Switching to manual selection."
 
 msgctxt "#33039"
 msgid "Stopped: no subtitle match found."
 
 msgctxt "#33040"
-msgid "Second subtitle is required."
+msgid "A second subtitle is required."
 
 msgctxt "#33041"
 msgid "Dual subtitles loaded."
@@ -120,7 +120,7 @@ msgctxt "#33042"
 msgid "Could not prepare subtitles."
 
 msgctxt "#33043"
-msgid "Could not access selected subtitle file."
+msgid "Could not open the selected subtitle file."
 
 msgctxt "#33044"
 msgid "Using manual subtitle selection."
@@ -129,79 +129,79 @@ msgctxt "#33045"
 msgid "Single subtitle loaded."
 
 msgctxt "#33046"
-msgid "Auto Match"
+msgid "Languages"
 
 msgctxt "#33047"
-msgid "Fallback"
+msgid "When Subtitles Are Missing"
 
 msgctxt "#33048"
-msgid "Layout"
+msgid "Subtitle Position"
 
 msgctxt "#33049"
-msgid "Timing and Sync"
+msgid "Timing"
 
 msgctxt "#33050"
-msgid "Bottom/Left Style"
+msgid "Bottom Subtitle Look"
 
 msgctxt "#33051"
-msgid "Top/Right Style"
+msgid "Top Subtitle Look"
 
 msgctxt "#33052"
-msgid "Strict: only Video.nl.srt / Video-nl.srt / Video_nl.srt.\nRelaxed: allows extra tokens like Video.forced.nl.srt."
+msgid "Strict: the file must be named exactly like the video, e.g. Movie.nl.srt.\nFlexible: also matches files with extra words, e.g. Movie.forced.nl.srt."
 
 msgctxt "#33053"
-msgid "Video folder first: starts in current playback folder first.\nLast used first: starts in the previous subtitle folder first."
+msgid "When you browse for subtitles, should it start in the video's folder or the last folder you used?"
 
 msgctxt "#33054"
-msgid "What to do when no subtitle matches preferred languages."
+msgid "What should happen when no subtitles are found for your languages?"
 
 msgctxt "#33055"
-msgid "What to do when only one preferred language is found."
+msgid "What should happen when only one of your two languages is found?"
 
 msgctxt "#33056"
-msgid "Enable this to force dual subtitles. Disable it to allow single-subtitle fallback."
+msgid "When on: both subtitles must be found or it stops.\nWhen off: it's OK to continue with just one subtitle."
 
 msgctxt "#33057"
-msgid "Set 2 preferred languages for automatic filename matching."
+msgid "Choose the languages you want subtitles in.\nSet both for dual subtitles, or just the first one for a single subtitle."
 
 msgctxt "#33058"
 msgid "AI Translation"
 
 msgctxt "#33059"
-msgid "Enable AI translation"
+msgid "Use AI to translate subtitles"
 
 msgctxt "#33060"
-msgid "OpenAI API Key"
+msgid "OpenAI API key"
 
 msgctxt "#33061"
-msgid "OpenAI Model"
+msgid "AI model"
 
 msgctxt "#33062"
 msgid "Lines per translation request"
 
 msgctxt "#33063"
-msgid "Enable OpenAI-powered subtitle translation.\nUse 'Translate Subtitle (manual)...' from the add-on menu and choose the source .srt and target language.\nTranslated files are written next to the source subtitle with backup safety in the DualSubtitles folder."
+msgid "Translates subtitles using AI (requires an OpenAI API key).\nUse 'Translate Subtitle...' from the addon menu to translate a subtitle file.\nTranslated files are saved next to the original with a backup."
 
 msgctxt "#33064"
-msgid "Translating subtitle with OpenAI..."
+msgid "Translating subtitle with AI..."
 
 msgctxt "#33065"
 msgid "AI translation created %s subtitle (%s)."
 
 msgctxt "#33066"
-msgid "AI translation failed. Continuing with manual fallback."
+msgid "AI translation failed."
 
 msgctxt "#33067"
 msgid "AI translation skipped: set your OpenAI API key first."
 
 msgctxt "#33071"
-msgid "Could not write translated subtitle file."
+msgid "Could not save the translated subtitle file."
 
 msgctxt "#33072"
 msgid "AI translation cancelled."
 
 msgctxt "#33073"
-msgid "OpenAI timeout (seconds)"
+msgid "AI timeout (seconds)"
 
 msgctxt "#33074"
 msgid "Continue without translation"
@@ -213,7 +213,7 @@ msgctxt "#33076"
 msgid "Translate missing %s and %s subtitles..."
 
 msgctxt "#33077"
-msgid "No .srt files found to use as translation source."
+msgid "No subtitle files found to use as translation source."
 
 msgctxt "#33078"
 msgid "Choose source subtitle for translation"
@@ -225,28 +225,28 @@ msgctxt "#33080"
 msgid "AI translation completed for %s and %s."
 
 msgctxt "#33081"
-msgid "Enable Smart Sync (large timing differences)"
+msgid "Fix timing automatically (Smart Sync)"
 
 msgctxt "#33082"
-msgid "Smart Sync is separate from Auto Shift.\nIt detects large subtitle drift and offers a guided sync flow."
+msgid "Compares your subtitle to a reference subtitle and fixes large timing differences.\nThis is separate from the fine-tuning below."
 
 msgctxt "#33083"
-msgid "Local Smart Sync"
+msgid "Smart Sync"
 
 msgctxt "#33084"
-msgid "Continue without Smart Sync"
+msgid "Continue without fixing timing"
 
 msgctxt "#33085"
-msgid "Run Smart Sync..."
+msgid "Fix timing now..."
 
 msgctxt "#33090"
-msgid "Choose subtitle to sync"
+msgid "Choose subtitle to fix timing for"
 
 msgctxt "#33091"
-msgid "Sync first subtitle: %s"
+msgid "Fix first subtitle: %s"
 
 msgctxt "#33092"
-msgid "Sync second subtitle: %s"
+msgid "Fix second subtitle: %s"
 
 msgctxt "#33093"
 msgid "Selected subtitle: %s"
@@ -255,79 +255,79 @@ msgctxt "#33094"
 msgid "Video folder subtitle: %s"
 
 msgctxt "#33095"
-msgid "No reference .srt files available for Smart Sync."
+msgid "No reference subtitle files available."
 
 msgctxt "#33096"
-msgid "Choose reference subtitle"
+msgid "Choose a reference subtitle (the one with correct timing)"
 
 msgctxt "#33097"
-msgid "Reference and target cannot be the same subtitle file."
+msgid "The reference and target cannot be the same file."
 
 msgctxt "#33098"
-msgid "Smart Sync detected a likely mismatch.\nMedian timing error: %d ms\nEstimated offset: %d ms"
+msgid "Timing looks off.\nAverage error: %d ms\nEstimated shift: %d ms"
 
 msgctxt "#33099"
-msgid "Low Smart Sync confidence (%d%%, median error %d ms)."
+msgid "Low confidence in timing fix (%d%%, average error %d ms)."
 
 msgctxt "#33100"
-msgid "AI Anchor Sync"
+msgid "AI-Assisted Timing Fix"
 
 msgctxt "#33101"
-msgid "Try AI fallback for better sync?\nThis sends subtitle text to OpenAI."
+msgid "Try AI for a better timing fix?\nThis sends subtitle text to OpenAI."
 
 msgctxt "#33102"
-msgid "Smart Sync AI fallback improved alignment."
+msgid "AI improved the timing."
 
 msgctxt "#33103"
-msgid "Not enough subtitle lines for AI anchor matching."
+msgid "Not enough subtitle lines for AI timing fix."
 
 msgctxt "#33104"
-msgid "Smart Sync AI fallback needs an OpenAI API key."
+msgid "AI timing fix needs an OpenAI API key."
 
 msgctxt "#33105"
-msgid "AI fallback did not produce a usable sync result."
+msgid "AI could not produce a usable timing fix."
 
 msgctxt "#33106"
-msgid "AI fallback returned no valid anchors."
+msgid "AI returned no valid timing matches."
 
 msgctxt "#33107"
-msgid "Smart Sync confidence: %d%% (median error %d ms)."
+msgid "Timing fix confidence: %d%% (average error %d ms)."
 
 msgctxt "#33108"
-msgid "Smart Sync applied (%s)."
+msgid "Timing fixed (%s)."
 
 msgctxt "#33109"
-msgid "Smart Sync local stage failed."
+msgid "Timing fix failed."
 
 msgctxt "#33110"
-msgid "Apply local sync result"
+msgid "Apply timing fix"
 
 msgctxt "#33111"
-msgid "Try AI fallback"
+msgid "Try AI instead"
 
 msgctxt "#33112"
-msgid "Skip Smart Sync"
+msgid "Skip timing fix"
 
 msgctxt "#33113"
-msgid "Smart Sync could not write target file. Using temporary synced subtitle for this playback."
+msgid "Could not save the fixed subtitle. Using it for this playback only."
 
 msgctxt "#33120"
-msgid "Run Smart Sync (manual)..."
+msgid "Fix Subtitle Timing (manual)..."
 
 msgctxt "#33121"
 msgid "Translate Subtitle (manual)..."
 
 msgctxt "#33122"
-msgid "Choose target subtitle to sync"
+msgid "Choose subtitle to fix"
 
 msgctxt "#33123"
-msgid "Smart Sync manual mode supports direct .srt subtitle files only."
+msgid "Only .srt subtitle files are supported for timing fixes."
 
 msgctxt "#33124"
-msgid "Choose reference subtitle for sync"
+msgid "Choose reference subtitle (the one with correct timing)"
 
 msgctxt "#33125"
-msgid "Set at least one preferred language before manual translation."
+msgid "Set at least one preferred language before translating."
 
 msgctxt "#33126"
 msgid "Choose translation target"
@@ -339,10 +339,10 @@ msgctxt "#33128"
 msgid "Translate to both %s and %s"
 
 msgctxt "#33130"
-msgid "Enable AI translation in settings to use manual translation."
+msgid "Enable AI translation in settings first."
 
 msgctxt "#33131"
-msgid "Enable Smart Sync in settings to use manual Smart Sync."
+msgid "Enable Smart Sync in settings first."
 
 msgctxt "#33132"
 msgid "Browse other folder..."
@@ -351,166 +351,166 @@ msgctxt "#33133"
 msgid "Cancel"
 
 msgctxt "#33134"
-msgid "Smart Sync in progress"
+msgid "Fixing timing..."
 
 msgctxt "#33135"
 msgid "Loading subtitle files..."
 
 msgctxt "#33136"
-msgid "Running local Smart Sync..."
+msgid "Analyzing timing..."
 
 msgctxt "#33137"
-msgid "Running AI fallback..."
+msgid "Running AI timing fix..."
 
 msgctxt "#33138"
-msgid "Evaluating AI sync result..."
+msgid "Checking AI result..."
 
 msgctxt "#33139"
-msgid "Writing synced subtitle..."
+msgid "Saving fixed subtitle..."
 
 msgctxt "#33140"
-msgid "Smart Sync complete."
+msgid "Timing fix complete."
 
 msgctxt "#33141"
-msgid "Sync the other selected subtitle too with the same reference?"
+msgid "Also fix the other selected subtitle with the same reference?"
 
 msgctxt "#33142"
-msgid "Smart Sync applied to two subtitles."
+msgid "Timing fixed for both subtitles."
 
 msgctxt "#33143"
-msgid "Sync a second subtitle with the same reference?"
+msgid "Fix a second subtitle with the same reference?"
 
 msgctxt "#33144"
-msgid "Choose second subtitle to sync"
+msgid "Choose second subtitle to fix"
 
 msgctxt "#33145"
-msgid "Smart Sync trigger mode"
+msgid "When to fix timing"
 
 msgctxt "#33146"
-msgid "Auto prompt on mismatch"
+msgid "Ask me when timing looks off"
 
 msgctxt "#33147"
-msgid "Manual only"
+msgid "Only when I choose to"
 
 msgctxt "#33150"
 msgid "Restore Subtitle Backup..."
 
 msgctxt "#33151"
-msgid "How should Smart Sync apply the result?"
+msgid "What to do with the fixed subtitle?"
 
 msgctxt "#33152"
-msgid "Replace original subtitle"
+msgid "Replace the original file"
 
 msgctxt "#33153"
-msgid "Missing preferred language? Use 'Translate Subtitle (manual)...' to generate it."
+msgid "Missing a language? Use 'Translate Subtitle...' from the menu to create it."
 
 msgctxt "#33154"
 msgid "Choose subtitle to restore from backup"
 
 msgctxt "#33155"
-msgid "Save synced subtitle as new file"
+msgid "Save as a new file"
 
 msgctxt "#33156"
-msgid "No backup file found for the selected subtitle."
+msgid "No backup found for this subtitle."
 
 msgctxt "#33157"
 msgid "Restored backup for %s."
 
 msgctxt "#33158"
-msgid "Could not restore backup file."
+msgid "Could not restore the backup."
 
 msgctxt "#33159"
-msgid "Use synced subtitle for this playback only"
+msgid "Use fixed subtitle for this playback only"
 
 msgctxt "#33160"
-msgid "Smart Sync saved new subtitle: %s."
+msgid "Saved fixed subtitle: %s."
 
 msgctxt "#33161"
-msgid "Smart Sync applied for this playback only."
+msgid "Using fixed subtitle for this playback only."
 
 msgctxt "#33162"
 msgid "Search & Download Subtitles..."
 
 msgctxt "#33163"
-msgid "Subtitle Download"
+msgid "Subtitle Sources"
 
 msgctxt "#33164"
-msgid "Enable subtitle downloader"
+msgid "Download subtitles from the internet"
 
 msgctxt "#33165"
-msgid "Auto-download missing preferred subtitles"
+msgid "Automatically download when subtitles are missing"
 
 msgctxt "#33166"
-msgid "Enable OpenSubtitles provider"
+msgid "Use OpenSubtitles"
 
 msgctxt "#33167"
-msgid "OpenSubtitles Username"
+msgid "OpenSubtitles username"
 
 msgctxt "#33168"
-msgid "OpenSubtitles Password"
+msgid "OpenSubtitles password"
 
 msgctxt "#33169"
-msgid "OpenSubtitles API Key"
+msgid "OpenSubtitles API key"
 
 msgctxt "#33170"
-msgid "Maximum results per language"
+msgid "Maximum search results per language"
 
 msgctxt "#33171"
-msgid "Searches enabled subtitle providers for the current video.\nDownloaded subtitles are saved next to the video and previous files are backed up to DualSubtitles."
+msgid "Searches the internet for subtitles that match your video.\nDownloaded files are saved next to the video. Old files are backed up."
 
 msgctxt "#33172"
-msgid "Subtitle downloader is disabled in settings."
+msgid "Subtitle downloading is turned off in settings."
 
 msgctxt "#33173"
-msgid "No subtitle download provider is enabled."
+msgid "No subtitle source is enabled."
 
 msgctxt "#33174"
-msgid "Set OpenSubtitles username, password, and API key in settings."
+msgid "Set your OpenSubtitles username, password, and API key in settings."
 
 msgctxt "#33175"
-msgid "No active video found. Start playback first."
+msgid "No video is playing. Start a video first."
 
 msgctxt "#33176"
-msgid "Searching subtitles..."
+msgid "Searching for subtitles..."
 
 msgctxt "#33177"
 msgid "No subtitles found for %s."
 
 msgctxt "#33178"
-msgid "Choose subtitle to download for %s"
+msgid "Choose a subtitle to download for %s"
 
 msgctxt "#33179"
-msgid "Missing preferred subtitles detected."
+msgid "Missing subtitles for your preferred languages."
 
 msgctxt "#33180"
 msgid "Downloaded subtitle could not be saved."
 
 msgctxt "#33181"
-msgid "Subtitle search failed: authentication error."
+msgid "Subtitle search failed: login error."
 
 msgctxt "#33182"
-msgid "Subtitle search failed: provider request error."
+msgid "Subtitle search failed: connection error."
 
 msgctxt "#33183"
-msgid "Auto-download found subtitle for %s."
+msgid "Downloaded subtitle for %s."
 
 msgctxt "#33184"
-msgid "Auto-download skipped."
+msgid "Download skipped."
 
 msgctxt "#33185"
-msgid "Choose language for subtitle download"
+msgid "Choose language for download"
 
 msgctxt "#33186"
-msgid "Enter language code (example: en, nl, ru)"
+msgid "Enter language code (e.g. en, nl, de)"
 
 msgctxt "#33187"
 msgid "Searching %s subtitles..."
 
 msgctxt "#33188"
-msgid "Continue without download"
+msgid "Continue without downloading"
 
 msgctxt "#33189"
-msgid "Try download now..."
+msgid "Try downloading now..."
 
 msgctxt "#33190"
 msgid "Downloaded subtitle saved as %s."
@@ -519,7 +519,7 @@ msgctxt "#33191"
 msgid "Downloading subtitle..."
 
 msgctxt "#33192"
-msgid "Provider: %s | score %d"
+msgid "Source: %s | score %d"
 
 msgctxt "#33193"
 msgid "Subtitle download failed."
@@ -528,7 +528,7 @@ msgctxt "#33194"
 msgid "Invalid language code."
 
 msgctxt "#33195"
-msgid "Auto-download completed. Continuing dual flow."
+msgid "Download completed. Continuing..."
 
 msgctxt "#33196"
 msgid "Enter language code..."
@@ -537,31 +537,31 @@ msgctxt "#33197"
 msgid "Use custom language code"
 
 msgctxt "#33220"
-msgid "Enable Podnadpisi provider"
+msgid "Use Podnadpisi"
 
 msgctxt "#33221"
-msgid "Enable SubDL provider"
+msgid "Use SubDL"
 
 msgctxt "#33222"
-msgid "SubDL API Key"
+msgid "SubDL API key"
 
 msgctxt "#33223"
-msgid "Set credentials for at least one enabled subtitle provider."
+msgid "Set login details for at least one enabled subtitle source."
 
 msgctxt "#33224"
-msgid "Skipping %s: credentials are incomplete."
+msgid "Skipping %s: login details are incomplete."
 
 msgctxt "#33225"
-msgid "Top result looks in sync: %s"
+msgid "Best match looks in sync: %s"
 
 msgctxt "#33226"
-msgid "Top result is likely in sync: %s"
+msgid "Best match is likely in sync: %s"
 
 msgctxt "#33227"
-msgid "Providers: %s"
+msgid "Sources: %s"
 
 msgctxt "#33228"
-msgid "Enable BSPlayer provider"
+msgid "Use BSPlayer"
 
 msgctxt "#33229"
 msgid "I Feel Lucky..."
@@ -576,25 +576,25 @@ msgctxt "#33275"
 msgid "I Feel Lucky (Dual Subtitles)..."
 
 msgctxt "#33276"
-msgid "Single subtitle target language"
+msgid "Single subtitle language"
 
 msgctxt "#33277"
 msgid "Single subtitle mode"
 
 msgctxt "#33278"
-msgid "Used by 'I Feel Lucky (Single Subtitle)...'.\nIf disabled, it falls back to Preferred Language 1."
+msgid "Used by 'I Feel Lucky (Single Subtitle)'.\nIf not set, it uses your first language instead."
 
 msgctxt "#33231"
 msgid "Auto-download missing subtitles"
 
 msgctxt "#33232"
-msgid "Auto Smart Sync with English reference"
+msgid "Auto-fix timing using English reference"
 
 msgctxt "#33233"
 msgid "Allow likely English reference"
 
 msgctxt "#33234"
-msgid "Auto AI translate missing subtitles"
+msgid "Auto-translate missing subtitles with AI"
 
 msgctxt "#33235"
 msgid "Continue with one subtitle on partial result (legacy)"
@@ -603,124 +603,124 @@ msgctxt "#33236"
 msgid "I Feel Lucky is running..."
 
 msgctxt "#33238"
-msgid "I Feel Lucky completed: dual subtitles ready."
+msgid "Done! Dual subtitles are ready."
 
 msgctxt "#33239"
-msgid "I Feel Lucky completed with one subtitle. Missing: %s."
+msgid "Partially done. Missing: %s."
 
 msgctxt "#33240"
-msgid "Set two different preferred languages to use I Feel Lucky."
+msgid "Set two different languages to use I Feel Lucky."
 
 msgctxt "#33241"
-msgid "I Feel Lucky could not prepare playable subtitles."
+msgid "Could not prepare subtitles for playback."
 
 msgctxt "#33242"
-msgid "I Feel Lucky downloaded %s."
+msgid "Downloaded %s."
 
 msgctxt "#33243"
-msgid "I Feel Lucky translated %s from %s."
+msgid "Translated %s from %s."
 
 msgctxt "#33244"
-msgid "I Feel Lucky SmartSync applied for %s."
+msgid "Fixed timing for %s."
 
 msgctxt "#33245"
-msgid "I Feel Lucky found an English reference (%s)."
+msgid "Found an English reference (%s)."
 
 msgctxt "#33246"
-msgid "I Feel Lucky could not find an English reference."
+msgid "Could not find an English reference subtitle."
 
 msgctxt "#33247"
-msgid "I Feel Lucky could not generate %s with AI translation."
+msgid "Could not translate %s with AI."
 
 msgctxt "#33248"
-msgid "Runs a one-click flow: local match, auto-download, English-reference SmartSync, then AI translation fallback."
+msgid "One-click flow: finds local files, downloads missing subtitles, fixes timing using English as reference, and translates with AI if needed."
 
 msgctxt "#33249"
-msgid "If an English reference is found, do you want a quick sync preview first?"
+msgid "An English reference subtitle was found. Do you want to check if it's in sync first?"
 
 msgctxt "#33250"
-msgid "Kodi will jump to the first spoken subtitle line (1 second early)."
+msgid "The video will jump to the first spoken line so you can check."
 
 msgctxt "#33251"
-msgid "Preparing local matches and context..."
+msgid "Looking for local subtitle files..."
 
 msgctxt "#33254"
-msgid "Preview loaded. Check subtitle sync now, then press OK to continue. Playback will return to the previous position."
+msgid "Check if the subtitle timing looks correct, then press OK to continue."
 
 msgctxt "#33256"
-msgid "I Feel Lucky canceled."
+msgid "I Feel Lucky cancelled."
 
 msgctxt "#33257"
-msgid "Ask for quick English sync test"
+msgid "Ask to check English subtitle timing"
 
 msgctxt "#33258"
-msgid "Searching strict matches for %s..."
+msgid "Searching subtitles for %s..."
 
 msgctxt "#33259"
-msgid "Trying fallback download for %s..."
+msgid "Trying wider search for %s..."
 
 msgctxt "#33260"
 msgid "Generating missing subtitles..."
 
 msgctxt "#33261"
-msgid "Searching English reference (exact/likely)..."
+msgid "Looking for an English reference subtitle..."
 
 msgctxt "#33262"
-msgid "Applying SmartSync for %s..."
+msgid "Fixing timing for %s..."
 
 msgctxt "#33263"
 msgid "Translating %s from %s..."
 
 msgctxt "#33264"
-msgid "English sync preview finished. Continuing..."
+msgid "English check finished. Continuing..."
 
 msgctxt "#33265"
-msgid "Finalizing subtitles..."
+msgid "Finishing up..."
 
 msgctxt "#33266"
-msgid "Launching dual subtitles..."
+msgid "Starting dual subtitles..."
 
 msgctxt "#33267"
-msgid "I Feel Lucky stopped: missing required subtitles (%s) even after fallback steps."
+msgid "Stopped: could not find subtitles for %s even after trying all options."
 
 msgctxt "#33268"
-msgid "Watch the preview and choose when you are ready."
+msgid "Watch the preview and choose when you're ready."
 
 msgctxt "#33269"
-msgid "Did the English subtitle look in sync?"
+msgid "Does the English subtitle timing look correct?"
 
 msgctxt "#33270"
 msgid "English reference skipped after preview."
 
 msgctxt "#33271"
-msgid "In Sync"
+msgid "Yes, timing is correct"
 
 msgctxt "#33272"
 msgid "Watch the preview video and choose when you're ready."
 
 msgctxt "#33273"
-msgid "Not In Sync"
+msgid "No, timing is off"
 
 msgctxt "#33279"
-msgid "Set 'Lucky: single subtitle target language' (or Preferred Language 1) first."
+msgid "Set a subtitle language first (in Languages settings)."
 
 msgctxt "#33280"
-msgid "I Feel Lucky (Single) completed: %s ready."
+msgid "Done! %s subtitle is ready."
 
 msgctxt "#33281"
-msgid "I Feel Lucky (Single) stopped: missing required subtitle (%s) even after fallback steps."
+msgid "Stopped: could not find a subtitle for %s even after trying all options."
 
 msgctxt "#33282"
-msgid "Launching single subtitle..."
+msgid "Starting subtitle..."
 
 msgctxt "#33283"
 msgid "No reliable match found for %s."
 
 msgctxt "#33284"
-msgid "Unknown match"
+msgid "Uncertain match"
 
 msgctxt "#33285"
-msgid "Provider"
+msgid "Source"
 
 msgctxt "#33286"
 msgid "Try this subtitle"
@@ -732,25 +732,25 @@ msgctxt "#33288"
 msgid "Skip this language"
 
 msgctxt "#33289"
-msgid "Title mismatch with video"
+msgid "Title doesn't match the video"
 
 msgctxt "#33290"
-msgid "Year mismatch with video"
+msgid "Year doesn't match the video"
 
 msgctxt "#33291"
-msgid "Source differs from video release"
+msgid "Different version than your video"
 
 msgctxt "#33292"
-msgid "Very low confidence"
+msgid "Very uncertain"
 
 msgctxt "#33293"
-msgid "Low confidence"
+msgid "Somewhat uncertain"
 
 msgctxt "#33294"
-msgid "Review this risky candidate."
+msgid "This subtitle might not match your video."
 
 msgctxt "#33295"
-msgid "Provider"
+msgid "Source"
 
 msgctxt "#33296"
 msgid "Risk"
@@ -759,34 +759,34 @@ msgctxt "#33297"
 msgid "Still missing subtitles: %s"
 
 msgctxt "#33298"
-msgid "Open manual download now"
+msgid "Search and download manually"
 
 msgctxt "#33299"
-msgid "Run AI translate manually"
+msgid "Translate with AI manually"
 
 msgctxt "#33300"
-msgid "No reliable match found for %s. Tried English-first translation fallback."
+msgid "No reliable match found for %s after trying all options."
 
 msgctxt "#33301"
-msgid "No risky candidates available for %s."
+msgid "No subtitle candidates available for %s."
 
 msgctxt "#33302"
-msgid "User selected risky candidate for %s."
+msgid "User selected uncertain candidate for %s."
 
 msgctxt "#33303"
-msgid "User skipped risky candidates for %s."
+msgid "User skipped uncertain candidates for %s."
 
 msgctxt "#33304"
 msgid "Translating %s to %s using AI..."
 
 msgctxt "#32507"
-msgid "Bottom-Top"
+msgid "One bottom, one top"
 
 msgctxt "#32508"
-msgid "Bottom, Left-Right"
+msgid "Both at the bottom, side by side"
 
 msgctxt "#32509"
-msgid "Bottom-Bottom"
+msgid "Both at the bottom, stacked"
 
 msgctxt "#32510"
 msgid "Subtitle Suite"
@@ -798,61 +798,61 @@ msgctxt "#32512"
 msgid "Font"
 
 msgctxt "#32513"
-msgid "Font Size"
+msgid "Text size"
 
 msgctxt "#32514"
-msgid "Font Bold"
+msgid "Bold text"
 
 msgctxt "#32515"
-msgid "Color"
+msgid "Text color"
 
 msgctxt "#32516"
-msgid "Black Translucent Background"
+msgid "Dark background behind text"
 
 msgctxt "#32517"
-msgid "Subtitle Layout"
+msgid "Where to show subtitles"
 
 msgctxt "#32518"
-msgid "Vertical Margin"
+msgid "Distance from screen edge"
 
 msgctxt "#32519"
 msgid "Bottom/Left Subtitle"
 
 msgctxt "#32520"
-msgid "Auto Shift"
+msgid "Fine-tune second subtitle timing"
 
 msgctxt "#32521"
-msgid "Time Difference Threshold (milliseconds)"
+msgid "Maximum timing difference (ms)"
 
 msgctxt "#32522"
-msgid "Enabling Auto Shift Will Try to Sync the Second Subtitle With the First\nAccording to the Time Difference Threshold"
+msgid "Slightly adjusts the second subtitle to match the first one's timing.\nOnly corrects small differences up to the amount set above."
 
 msgctxt "#32523"
-msgid "The Depth of the Text Shadow, in Pixels"
+msgid "Shadow size"
 
 msgctxt "#32524"
-msgid "The Width of the Text Outline, in Pixels"
+msgid "Outline size"
 
 msgctxt "#32525"
-msgid "Swap Bottom/Left - Top/Right Subtitles"
+msgid "Swap the two subtitles"
 
 msgctxt "#32526"
-msgid "Minimal Time (milliseconds) Subtitles on Screen"
+msgid "Minimum time subtitles stay visible (ms)"
 
 msgctxt "#32527"
-msgid "When This Time Is Set, All Subtitles Are Extended to Stay on Screen\nfor at Least This Time."
+msgid "Keeps each subtitle on screen for at least this long.\nSet to 0 to disable. Useful if you need more time to read."
 
 msgctxt "#32528"
-msgid "However, If a Next Subtitle Occurs Earlier, This Time Is of Course Cut Off.\nThis Allows People That Read Slower to Read the Text."
+msgid ""
 
 msgctxt "#32529"
-msgid "Character Set"
+msgid "Text encoding"
 
 msgctxt "#32530"
-msgid "An Error That a Subtitle Cannot Be Downloaded Can Popup After Closing This Message. Please Ignore This Since There Is No Workaround for It Not to Display This Message."
+msgid "A subtitle download error may briefly appear after closing this. You can safely ignore it."
 
 msgctxt "#32531"
-msgid "Error Loading Subtitle File"
+msgid "Error loading subtitle file"
 
 msgctxt "#32532"
 msgid "White"
@@ -864,7 +864,7 @@ msgctxt "#32534"
 msgid "Charset Normalizer Not Supported by Python 2 (Kodi 18 or Lower)"
 
 msgctxt "#32535"
-msgid "In Kodi Settings, Player, Subtitles, Font, the Default Font Is Selected Which Cannot Be Used. Please Choose a Specific Font There or in This Addon Settings."
+msgid "In Kodi Settings > Player > Subtitles > Font, the default font is selected. Please choose a specific font there or in this addon's settings."
 
 msgctxt "#32536"
-msgid "Unable to Retrieve the Subtitles Font from Kodi Settings, Player, Subtitles, Font."
+msgid "Could not read the subtitle font from Kodi settings."
