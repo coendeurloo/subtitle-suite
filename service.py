@@ -76,6 +76,7 @@ from resources.lib.languages import (
   KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
 )
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
+DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
   'likely': 1,
@@ -270,6 +271,54 @@ def unzip(zip_path, exts):
 def Download(filename):
   listitem = xbmcgui.ListItem(label=filename)
   xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=filename, listitem=listitem, isFolder=False)
+
+def _apply_subtitle_to_player_now(subtitle_path):
+  path = _as_text(subtitle_path).strip()
+  if not path:
+    return False
+  try:
+    player = xbmc.Player()
+    if not player.isPlayingVideo():
+      return False
+    try:
+      player.showSubtitles(True)
+    except Exception:
+      pass
+    player.setSubtitles(path)
+    return True
+  except Exception as exc:
+    _log('setSubtitles failed for %s (%s)' % (path, exc), LOG_WARNING)
+    return False
+
+def _refresh_active_subtitle_renderer(subtitle_path):
+  """Force Kodi to refresh subtitle rendering without user scrubbing."""
+  path = _as_text(subtitle_path).strip()
+  if not path:
+    return False
+  try:
+    player = xbmc.Player()
+    if not player.isPlayingVideo():
+      return False
+    try:
+      player.showSubtitles(False)
+      xbmc.sleep(90)
+    except Exception:
+      pass
+    player.setSubtitles(path)
+    try:
+      player.showSubtitles(True)
+    except Exception:
+      pass
+    # A tiny seek refresh mirrors the manual timeline scrub workaround.
+    try:
+      current_time = float(max(0.0, player.getTime()))
+      player.seekTime(current_time + 0.04)
+    except Exception:
+      pass
+    return True
+  except Exception as exc:
+    _log('subtitle renderer refresh failed for %s (%s)' % (path, exc), LOG_WARNING)
+    return False
 
 def _equal_text(setting_value, message_id):
   return setting_value == str(message_id) or setting_value == __language__(message_id)
@@ -1925,7 +1974,7 @@ def _load_pysubs2():
   try:
     import pysubs2
   except Exception:
-    from lib import pysubs2
+    from resources.lib import pysubs2
   return pysubs2
 
 def _translate_subtitle_file(source_subtitle_path, source_language_code, target_language_code):
@@ -2741,14 +2790,14 @@ def _sync_tier_icon_markup(sync_tier):
     return '[COLOR springgreen]✓[/COLOR]'
   if sync_tier == 'likely':
     return '[COLOR gold]≈[/COLOR]'
-  return '[COLOR gray]?[/COLOR]'
+  return '[COLOR gray]%s[/COLOR]' % (__language__(33305))
 
 def _sync_tier_hint(sync_tier):
   if sync_tier == 'exact':
     return u'\u2713'
   if sync_tier == 'likely':
     return u'\u2248'
-  return u'?'
+  return __language__(33305)
 
 def _provider_stars(result):
   try:
@@ -2806,10 +2855,37 @@ def _download_sync_icon_path(sync_tier):
 def _sync_tier_window_label(sync_tier):
   tier = _as_text(sync_tier).lower()
   if tier == 'exact':
-    return '[COLOR springgreen]Exact match[/COLOR]'
+    return '[COLOR springgreen]%s[/COLOR]' % (_sync_tier_text(sync_tier))
   if tier == 'likely':
-    return '[COLOR gold]Possible match[/COLOR]'
-  return '[COLOR gray]Unknown match[/COLOR]'
+    return '[COLOR gold]%s[/COLOR]' % (_sync_tier_text(sync_tier))
+  return '[COLOR gray]%s[/COLOR]' % (_sync_tier_text(sync_tier))
+
+def _sync_tier_inline_label(sync_tier):
+  tier = _as_text(sync_tier).lower()
+  if tier == 'exact':
+    return '[COLOR springgreen]%s[/COLOR]' % (_sync_tier_text(sync_tier))
+  if tier == 'likely':
+    return '[COLOR gold]%s[/COLOR]' % (_sync_tier_text(sync_tier))
+  return '[COLOR gray]%s[/COLOR]' % (_sync_tier_text(sync_tier))
+
+def _sync_tier_text(sync_tier):
+  tier = _as_text(sync_tier).lower()
+  if tier == 'exact':
+    return 'SYNC'
+  if tier == 'likely':
+    return 'LIKELY'
+  return __language__(33305)
+
+def _window_language_line(language_name, language_code):
+  label = _as_text(language_name).strip()
+  if label and len(label) <= 7:
+    return label
+  code = _canonicalize_language_code(language_code) or _as_text(language_code).strip().lower()
+  if code:
+    return code.upper()
+  if label:
+    return label[:7]
+  return 'N/A'
 
 def _compact_release_traits_label(release_name):
   traits = _release_traits_label(release_name)
@@ -2824,6 +2900,7 @@ def _build_download_window_listitem(result):
   release_name = _as_text(result.get('release_name', '')).strip()
   if not release_name:
     release_name = 'subtitle'
+  release_display = release_name.replace('.', ' ').replace('_', ' ')
 
   language_code = _canonicalize_language_code(result.get('language', '')) or 'unk'
   language_name = _language_display_name(language_code)
@@ -2838,15 +2915,15 @@ def _build_download_window_listitem(result):
   sync_icon = _download_sync_icon_path(sync_tier)
 
   try:
-    item = xbmcgui.ListItem(label=release_name, label2=language_name)
+    item = xbmcgui.ListItem(label=release_display, label2=language_name)
   except Exception:
-    item = xbmcgui.ListItem(release_name)
+    item = xbmcgui.ListItem(release_display)
 
-  item.setProperty('release_line', release_name)
+  item.setProperty('release_line', release_display)
   item.setProperty('provider_line', '%s%s' % (provider_line, hi_line))
   item.setProperty('stars_line', stars_line)
   item.setProperty('sync_line', sync_line)
-  item.setProperty('language_line', language_code.upper())
+  item.setProperty('language_line', _window_language_line(language_name, language_code))
   item.setProperty('extra_line', extra_line)
   item.setProperty('flag_icon', flag_icon)
   item.setProperty('sync_icon', sync_icon)
@@ -2870,8 +2947,8 @@ def _select_download_result_dialog_select(results, language_label):
   option_labels = []
   option_items = []
   for item in results:
-    option_labels.append(_download_result_menu_label(item))
-    option_items.append(_build_download_result_listitem(item))
+    option_labels.append(_download_result_browser_label2(item))
+    option_items.append(_build_download_browser_listitem(item))
 
   try:
     return __msg_box__.select(__language__(33178) % (language_label), option_items, useDetails=True)
@@ -2984,30 +3061,43 @@ def _language_display_name(language_code):
     pass
   return code.upper()
 
-def _sync_marker_symbol(sync_tier):
-  if sync_tier == 'exact':
-    return u'✓'
-  if sync_tier == 'likely':
-    return u'≈'
-  return u'·'
-
 def _download_result_browser_label2(result):
   release_name = _as_text(result.get('release_name', '')).strip()
   if not release_name:
     release_name = 'subtitle'
   item_name, item_ext = os.path.splitext(release_name)
   if item_name:
-    release_display = item_name
+    release_display = item_name.replace('.', ' ').replace('_', ' ')
   else:
-    release_display = release_name
+    release_display = release_name.replace('.', ' ').replace('_', ' ')
   if item_ext:
     ext_label = item_ext.replace('.', '').upper()
   else:
     ext_label = 'SRT'
 
-  sync_symbol = _sync_marker_symbol(_as_text(result.get('sync_tier', 'unknown')).lower())
+  sync_tier = _as_text(result.get('sync_tier', 'unknown')).lower()
   provider_label = _provider_colored_label(result)
-  return '%s %s ([B]%s[/B]) ([B]%s[/B])' % (sync_symbol, release_display, ext_label, provider_label)
+  hi_label = ''
+  if result.get('hearing_impaired'):
+    hi_label = ' [COLOR gold]HI[/COLOR]'
+  sync_label = _sync_tier_inline_label(sync_tier)
+  base_line = '%s ([B]%s[/B]) ([B]%s%s[/B]) [COLOR gray]|[/COLOR] %s' % (release_display, ext_label, provider_label, hi_label, sync_label)
+  extra_line = _as_text(result.get('display_extra_line', '')).strip()
+  if extra_line:
+    return '%s[CR][COLOR gray]%s[/COLOR]' % (base_line, extra_line)
+  # Layout intentionally mirrors a4k's native subtitle list style:
+  # "<release> (EXT) (Provider)" with provider color emphasis.
+  return base_line
+
+def _a4k_thumb_language_code(language_code):
+  code = _canonicalize_language_code(language_code) or _as_text(language_code).lower().strip()
+  if not code:
+    return 'en'
+  if code == 'en':
+    return 'gb'
+  if len(code) > 2:
+    return code[:2]
+  return code
 
 def _build_download_browser_listitem(result):
   language_code = _canonicalize_language_code(result.get('language', '')) or 'unk'
@@ -3033,13 +3123,13 @@ def _build_download_browser_listitem(result):
   try:
     item.setArt({
       'icon': str(provider_rating),
-      'thumb': language_code.lower(),
+      'thumb': _a4k_thumb_language_code(language_code),
     })
   except Exception:
     pass
 
   sync_tier = _as_text(result.get('sync_tier', '')).lower()
-  sync_value = 'true' if sync_tier in ['exact', 'likely'] else 'false'
+  sync_value = 'true' if sync_tier == 'exact' else 'false'
   try:
     item.setProperty('sync', sync_value)
     item.setProperty('hearing_imp', 'true' if result.get('hearing_impaired') else 'false')
@@ -3136,6 +3226,21 @@ def _format_download_provider_user_message(provider, exc, auth_error=False):
     return '%s network error. Check your connection and try again.' % (provider_name)
   return '%s request failed.' % (provider_name)
 
+def _is_download_provider_runtime_disabled(provider_name):
+  key = _as_text(provider_name).lower().strip()
+  if not key:
+    return False
+  return bool(DOWNLOAD_PROVIDER_RUNTIME_DISABLED.get(key))
+
+def _disable_download_provider_for_session(provider_name):
+  key = _as_text(provider_name).lower().strip()
+  if not key:
+    return
+  if DOWNLOAD_PROVIDER_RUNTIME_DISABLED.get(key):
+    return
+  DOWNLOAD_PROVIDER_RUNTIME_DISABLED[key] = True
+  _log('download provider temporarily disabled for current run: %s' % (key), LOG_WARNING)
+
 def _configured_download_provider_names():
   names = []
   if _is_opensubtitles_enabled():
@@ -3224,6 +3329,8 @@ def _get_ready_download_providers():
   auth_errors = 0
   last_auth_message = ''
   for provider in providers:
+    if _is_download_provider_runtime_disabled(provider.name):
+      continue
     try:
       provider.validate_config()
       ready.append(provider)
@@ -3285,6 +3392,11 @@ def _search_download_results(context, language_code):
       request_failures += 1
       last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
       _log('download provider request failed (%s): %s' % (provider.name, exc), LOG_WARNING)
+      provider_key = _as_text(getattr(provider, 'name', '')).lower().strip()
+      if provider_key == 'bsplayer':
+        exc_text = _as_text(exc).lower()
+        if 'timed out' in exc_text or 'timeout' in exc_text or 'network error' in exc_text:
+          _disable_download_provider_for_session(provider.name)
     except Exception as exc:
       request_failures += 1
       last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
@@ -3828,8 +3940,7 @@ def _prompt_lucky_unknown_candidate(slot_label, candidates, video_basename=''):
   for item in candidates:
     candidate = dict(item)
     risk_reason = _as_text(candidate.get('risk_reason', '')).strip() or __language__(33284)
-    release_name = _as_text(candidate.get('release_name', 'subtitle')).strip() or 'subtitle'
-    candidate['display_extra_line'] = '%s [COLOR gray]|[/COLOR] [COLOR gray]%s[/COLOR]' % (release_name, risk_reason)
+    candidate['display_extra_line'] = risk_reason
     enriched.append(candidate)
 
   try:
@@ -4032,7 +4143,7 @@ def _run_download_for_language(video_dir, video_basename, language_code, languag
     progress.create(__scriptname__, search_line)
     provider_names = _configured_download_provider_names()
     if len(provider_names) > 0:
-      _progress_update(progress, 5, search_line, __language__(33227) % (' | '.join(provider_names)))
+      _progress_update(progress, 5, search_line, '%s: %s' % (__language__(33227), ' | '.join(provider_names)))
     results = _search_download_results(context, language_code)
   except RuntimeError as exc:
     _close_progress(progress)
@@ -4086,7 +4197,7 @@ def _open_manual_download_results_browser(video_dir, video_basename, language_co
     progress.create(__scriptname__, search_line)
     provider_names = _configured_download_provider_names()
     if len(provider_names) > 0:
-      _progress_update(progress, 5, search_line, __language__(33227) % (' | '.join(provider_names)))
+      _progress_update(progress, 5, search_line, '%s: %s' % (__language__(33227), ' | '.join(provider_names)))
     results = _search_download_results(context, language_code)
   except RuntimeError as exc:
     _close_progress(progress)
@@ -4117,9 +4228,27 @@ def _open_manual_download_results_browser(video_dir, video_basename, language_co
     'results': [_serialize_download_result_for_cache(item) for item in results],
   }
   if not _save_download_results_cache(cache_payload):
-    downloaded_path = _run_download_for_language(video_dir, video_basename, language_code, language_label)
-    if downloaded_path:
-      Download(downloaded_path)
+    selected = _select_download_result_dialog_select(results, language_label)
+    if selected is None or selected < 0 or selected >= len(results):
+      return
+    selected_result = results[selected]
+    progress = xbmcgui.DialogProgress()
+    try:
+      progress.create(__scriptname__, __language__(33191))
+      target_path = _write_download_payload_to_target(context, language_code, selected_result)
+    except RuntimeError as exc:
+      _close_progress(progress)
+      _notify(_as_text(exc), NOTIFY_WARNING)
+      return
+    except Exception as exc:
+      _close_progress(progress)
+      _notify(__language__(33193), NOTIFY_WARNING)
+      _log('manual download fallback write failed (%s)' % (exc), LOG_WARNING)
+      return
+    _close_progress(progress)
+    _notify(__language__(33190) % (os.path.basename(target_path)), NOTIFY_INFO)
+    _log('manual download fallback selected: language=%s path=%s provider=%s' % (language_code, target_path, selected_result.get('provider')), LOG_INFO)
+    Download(target_path)
     return
 
   handle = int(sys.argv[1])
@@ -4447,6 +4576,57 @@ def _prepare_and_merge_subtitles(subs):
     for subtemp in substemp:
       xbmcvfs.delete(subtemp)
 
+def _enforce_dual_bottom_stack_visibility(ass_path):
+  """Ensure dual ASS subtitles are visible together near the bottom.
+
+  Some skins/overlays make top-aligned lines hard to see. For dual output we
+  force top-style to bottom alignment with a higher vertical margin so both
+  languages remain visible at once.
+  """
+  path = _as_text(ass_path).strip()
+  if not path or not path.lower().endswith('.ass'):
+    return
+  if not xbmcvfs.exists(path):
+    return
+
+  try:
+    with open(path, 'rb') as handle:
+      raw = handle.read()
+  except Exception as exc:
+    _log('dual ass visibility patch read failed (%s): %s' % (path, exc), LOG_WARNING)
+    return
+
+  text = _as_text(raw)
+  lines = text.splitlines()
+  changed = False
+  patched = []
+
+  for line in lines:
+    if line.startswith('Style: top-style,'):
+      prefix, body = line.split(': ', 1)
+      fields = body.split(',')
+      if len(fields) >= 23:
+        fields[18] = '2'  # Alignment -> bottom-center
+        try:
+          margin_v = int(_as_text(fields[21]).strip() or '0')
+        except Exception:
+          margin_v = 0
+        if margin_v < 56:
+          fields[21] = '56'
+        line = '%s: %s' % (prefix, ','.join(fields))
+        changed = True
+    patched.append(line)
+
+  if not changed:
+    return
+
+  try:
+    with open(path, 'wb') as handle:
+      handle.write(_to_utf8_bytes('\n'.join(patched) + '\n'))
+    _log('dual ass visibility patch applied: %s' % (path), LOG_INFO)
+  except Exception as exc:
+    _log('dual ass visibility patch write failed (%s): %s' % (path, exc), LOG_WARNING)
+
 def _pick_subtitles_with_settings(start_dir, apply_no_match_behavior=False, force_manual_both=False):
   second_required = _is_second_subtitle_required()
   behavior = 'manual_both'
@@ -4480,7 +4660,14 @@ def _pick_subtitles_with_settings(start_dir, apply_no_match_behavior=False, forc
   _log('manual picker selected subtitle1=%s subtitle2=%s' % (subtitle1, subtitle2), LOG_INFO)
   return subtitle1, subtitle2, subtitle1_dir
 
-def _finalize_selected_subtitle_paths(subtitle1, subtitle2, subtitle1_dir='', smart_sync_temp_files=None, show_notifications=True):
+def _finalize_selected_subtitle_paths(
+  subtitle1,
+  subtitle2,
+  subtitle1_dir='',
+  smart_sync_temp_files=None,
+  show_notifications=True,
+  register_download_item=True
+):
   if subtitle1 is None:
     return False
 
@@ -4512,7 +4699,17 @@ def _finalize_selected_subtitle_paths(subtitle1, subtitle2, subtitle1_dir='', sm
       except Exception:
         pass
 
-  Download(finalfile)
+  if register_download_item:
+    Download(finalfile)
+  if len(subs) > 1:
+    _enforce_dual_bottom_stack_visibility(finalfile)
+  if not _apply_subtitle_to_player_now(finalfile):
+    # Retry once shortly after Kodi finishes plugin callback handling.
+    xbmc.sleep(250)
+    _apply_subtitle_to_player_now(finalfile)
+  if len(subs) > 1:
+    xbmc.sleep(180)
+    _refresh_active_subtitle_renderer(finalfile)
   if show_notifications:
     if len(subs) > 1:
       _notify(__language__(33041), NOTIFY_INFO)
@@ -4650,8 +4847,17 @@ def _show_lucky_center_summary(title, lines):
     cleaned = [cleaned[0]] + cleaned[-7:]
   if len(cleaned) == 0:
     return
+  summary_text = '[CR]'.join(cleaned)
   try:
-    __msg_box__.ok(_as_text(title) or __language__(33230), '[CR]'.join(cleaned))
+    player = xbmc.Player()
+    if player.isPlayingVideo():
+      # Avoid modal dialogs during playback; they can feel like flow aborts.
+      _notify(summary_text, NOTIFY_INFO, timeout=5500)
+      return
+  except Exception:
+    pass
+  try:
+    __msg_box__.ok(_as_text(title) or __language__(33230), summary_text)
   except Exception:
     pass
 
@@ -4945,17 +5151,35 @@ def _focus_video_for_lucky_preview(state=None):
   except Exception:
     pass
   try:
+    xbmc.executebuiltin('Dialog.Close(subtitlesettings,true)')
+  except Exception:
+    pass
+  try:
+    xbmc.executebuiltin('Dialog.Close(videoosd,true)')
+  except Exception:
+    pass
+  try:
     xbmc.executebuiltin('Dialog.Close(DialogSettings.xml,true)')
   except Exception:
     pass
   try:
-    if xbmc.getCondVisibility('Window.IsActive(fullscreenvideo)'):
+    if not xbmc.getCondVisibility('Window.IsActive(fullscreenvideo)'):
       xbmc.executebuiltin('Action(FullScreen)')
       xbmc.sleep(120)
   except Exception:
     pass
+
+def _let_lucky_preview_play(duration_ms=5000):
+  # Let users actually watch subtitle timing in fullscreen before asking.
+  _notify(
+    'Previewing subtitles for 5 seconds. The sync confirmation will appear after this preview.',
+    NOTIFY_INFO,
+    timeout=4500
+  )
+  # Close subtitle dialogs again in case the skin re-opened one.
+  _focus_video_for_lucky_preview()
   try:
-    xbmc.executebuiltin('ActivateWindow(Home)')
+    xbmc.sleep(max(0, int(duration_ms)))
   except Exception:
     pass
 
@@ -5047,6 +5271,25 @@ def _run_lucky_translate_missing_slots(
   source_label = _language_display_name(source_language_code)
   if not source_label or source_language_code == 'auto':
     source_label = os.path.basename(source_subtitle)
+
+  # Always require explicit user confirmation before AI translation in Lucky flow.
+  target_labels = []
+  for slot in missing_slots:
+    label = _as_text(slot.get('label', slot.get('code', 'target'))).strip()
+    if label:
+      target_labels.append(label)
+  target_text = ', '.join(target_labels) if len(target_labels) > 0 else 'target subtitles'
+  prompt = 'Translate with AI from %s to %s?' % (source_label, target_text)
+  prompt += '[CR][CR]This sends subtitle text to OpenAI.'
+  try:
+    confirmed = __msg_box__.yesno(__language__(33230), prompt)
+  except Exception:
+    confirmed = False
+  if not confirmed:
+    _log('lucky translation skipped: user did not confirm AI translation (%s -> %s)' % (source_label, target_text), LOG_INFO)
+    _resume_playback_for_lucky_step(playback_state)
+    return
+
   try:
     for slot in missing_slots:
       target_label = _as_text(slot.get('label', slot.get('code', 'target')))
@@ -5254,6 +5497,7 @@ def _run_i_feel_lucky_single_flow():
         english_preview_tested = True
         _focus_video_for_lucky_preview(preview_result.get('state'))
         _log('lucky single english preview started: reference=%s' % (english_reference_path), LOG_INFO)
+        _let_lucky_preview_play(5000)
         preview_selection = 'cancel'
         try:
           preview_selection = _show_lucky_english_preview_dialog(english_reference_path)
@@ -5430,7 +5674,8 @@ def _run_i_feel_lucky_single_flow():
       None,
       subtitle1_dir=subtitle1_dir,
       smart_sync_temp_files=smart_sync_temp_files,
-      show_notifications=False
+      show_notifications=False,
+      register_download_item=False
     )
 
     if finalized:
@@ -5696,6 +5941,7 @@ def _run_i_feel_lucky_flow():
         english_preview_tested = True
         _focus_video_for_lucky_preview(preview_result.get('state'))
         _log('lucky english preview started: reference=%s' % (english_reference_path), LOG_INFO)
+        _let_lucky_preview_play(5000)
         preview_selection = 'cancel'
         try:
           preview_selection = _show_lucky_english_preview_dialog(english_reference_path)
@@ -5805,6 +6051,11 @@ def _run_i_feel_lucky_flow():
         if len(unknown_candidates) == 0:
           continue
 
+        # Ensure the risky-candidate picker is never shown with a stale progress
+        # dialog still open from the previous language iteration.
+        _close_progress(progress)
+        progress = None
+
         risky_candidate = _prompt_lucky_unknown_candidate(
           slot.get('label', slot.get('code', '')),
           unknown_candidates,
@@ -5841,6 +6092,7 @@ def _run_i_feel_lucky_flow():
         _step(90, __language__(33265), 'Downloaded selected %s subtitle.' % (slot['label']))
 
         if _is_lucky_smartsync_enabled() and english_reference_path and can_use_reference_for_sync and risky_path.lower() != english_reference_path.lower():
+          _log('lucky dual smartsync start for %s using reference=%s target=%s' % (slot.get('label', slot.get('code', 'target')), english_reference_path, risky_path), LOG_INFO)
           _step(91, __language__(33262) % (slot['label']), 'Running SmartSync for %s...' % (slot['label']))
           sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, risky_path, force_apply=True)
           if not sync_apply.get('applied'):
@@ -5897,7 +6149,8 @@ def _run_i_feel_lucky_flow():
       subtitle2,
       subtitle1_dir=subtitle1_dir,
       smart_sync_temp_files=smart_sync_temp_files,
-      show_notifications=False
+      show_notifications=False,
+      register_download_item=False
     )
 
     if finalized:

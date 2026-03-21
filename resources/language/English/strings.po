@@ -1034,6 +1034,9 @@ msgctxt "#33304"
 msgid "Translating %s to %s using AI..."
 msgstr ""
 
+msgctxt "#33305"
+msgid "Sync Unknown"
+
 msgctxt "#32507"
 msgid "One bottom, one top"
 msgstr ""

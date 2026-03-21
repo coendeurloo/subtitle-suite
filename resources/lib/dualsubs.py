@@ -19,7 +19,7 @@ translatePath = xbmcvfs.translatePath
 try:
     import pysubs2
 except Exception:
-    from lib import pysubs2
+    from resources.lib import pysubs2
 
 from resources.lib.charset_normalizer.api import from_path
 

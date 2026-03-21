@@ -70,6 +70,42 @@
       </control>
 
       <control type="image">
+        <left>20</left>
+        <top>142</top>
+        <width>270</width>
+        <height>764</height>
+        <texture colordiffuse="FF111A21">pixel.png</texture>
+      </control>
+
+      <control type="label">
+        <left>42</left>
+        <top>166</top>
+        <width>220</width>
+        <height>32</height>
+        <font>font12</font>
+        <textcolor>FF36C2E8</textcolor>
+        <label>Services</label>
+      </control>
+
+      <control type="image">
+        <left>36</left>
+        <top>210</top>
+        <width>238</width>
+        <height>62</height>
+        <texture colordiffuse="FF1D5E73">pixel.png</texture>
+      </control>
+
+      <control type="label">
+        <left>52</left>
+        <top>226</top>
+        <width>210</width>
+        <height>30</height>
+        <font>font10</font>
+        <textcolor>FF21F8B5</textcolor>
+        <label>Subtitle Suite</label>
+      </control>
+
+      <control type="image">
         <left>1332</left>
         <top>142</top>
         <width>348</width>
@@ -91,9 +127,9 @@
       </control>
 
       <control type="list" id="1200">
-        <left>28</left>
+        <left>300</left>
         <top>150</top>
-        <width>1276</width>
+        <width>1000</width>
         <height>748</height>
         <onup>1200</onup>
         <ondown>1200</ondown>
@@ -109,46 +145,46 @@
             <aspectratio align="center">keep</aspectratio>
           </control>
           <control type="label">
-            <left>10</left>
+            <left>8</left>
             <top>50</top>
-            <width>52</width>
+            <width>68</width>
             <height>22</height>
-            <font>font10</font>
+            <font>font9</font>
             <align>center</align>
             <textcolor>FF8C9AA3</textcolor>
             <label>$INFO[ListItem.Property(language_line)]</label>
           </control>
           <control type="label">
-            <left>80</left>
+            <left>86</left>
             <top>10</top>
-            <width>790</width>
+            <width>540</width>
             <height>30</height>
             <font>font10</font>
             <textcolor>FFE0E6EA</textcolor>
             <label>$INFO[ListItem.Property(release_line)]</label>
           </control>
           <control type="label">
-            <left>80</left>
+            <left>86</left>
             <top>38</top>
-            <width>560</width>
+            <width>430</width>
             <height>28</height>
             <font>font10</font>
             <textcolor>FF9FC4CF</textcolor>
             <label>$INFO[ListItem.Property(provider_line)]</label>
           </control>
           <control type="label">
-            <left>80</left>
+            <left>86</left>
             <top>64</top>
-            <width>760</width>
+            <width>560</width>
             <height>24</height>
             <font>font9</font>
             <textcolor>FF6F7A81</textcolor>
             <label>$INFO[ListItem.Property(extra_line)]</label>
           </control>
           <control type="label">
-            <left>846</left>
+            <left>650</left>
             <top>38</top>
-            <width>184</width>
+            <width>116</width>
             <height>28</height>
             <font>font10</font>
             <align>right</align>
@@ -156,17 +192,17 @@
             <label>$INFO[ListItem.Property(stars_line)]</label>
           </control>
           <control type="image">
-            <left>1048</left>
-            <top>20</top>
-            <width>42</width>
-            <height>42</height>
+            <left>772</left>
+            <top>22</top>
+            <width>36</width>
+            <height>36</height>
             <texture>$INFO[ListItem.Property(sync_icon)]</texture>
             <aspectratio align="center">keep</aspectratio>
           </control>
           <control type="label">
-            <left>1096</left>
+            <left>814</left>
             <top>28</top>
-            <width>170</width>
+            <width>176</width>
             <height>30</height>
             <font>font10</font>
             <textcolor>FFB0C7D2</textcolor>
@@ -177,7 +213,7 @@
           <control type="image">
             <left>0</left>
             <top>0</top>
-            <width>1276</width>
+            <width>1000</width>
             <height>104</height>
             <texture colordiffuse="FF1C5F73">pixel.png</texture>
           </control>
@@ -190,46 +226,46 @@
             <aspectratio align="center">keep</aspectratio>
           </control>
           <control type="label">
-            <left>10</left>
+            <left>8</left>
             <top>50</top>
-            <width>52</width>
+            <width>68</width>
             <height>22</height>
-            <font>font10</font>
+            <font>font9</font>
             <align>center</align>
             <textcolor>FFE7EEF1</textcolor>
             <label>$INFO[ListItem.Property(language_line)]</label>
           </control>
           <control type="label">
-            <left>80</left>
+            <left>86</left>
             <top>10</top>
-            <width>790</width>
+            <width>540</width>
             <height>30</height>
             <font>font10</font>
             <textcolor>FFFFFFFF</textcolor>
             <label>$INFO[ListItem.Property(release_line)]</label>
           </control>
           <control type="label">
-            <left>80</left>
+            <left>86</left>
             <top>38</top>
-            <width>560</width>
+            <width>430</width>
             <height>28</height>
             <font>font10</font>
             <textcolor>FFC6E0E9</textcolor>
             <label>$INFO[ListItem.Property(provider_line)]</label>
           </control>
           <control type="label">
-            <left>80</left>
+            <left>86</left>
             <top>64</top>
-            <width>760</width>
+            <width>560</width>
             <height>24</height>
             <font>font9</font>
             <textcolor>FF9CB8C3</textcolor>
             <label>$INFO[ListItem.Property(extra_line)]</label>
           </control>
           <control type="label">
-            <left>846</left>
+            <left>650</left>
             <top>38</top>
-            <width>184</width>
+            <width>116</width>
             <height>28</height>
             <font>font10</font>
             <align>right</align>
@@ -237,17 +273,17 @@
             <label>$INFO[ListItem.Property(stars_line)]</label>
           </control>
           <control type="image">
-            <left>1048</left>
-            <top>20</top>
-            <width>42</width>
-            <height>42</height>
+            <left>772</left>
+            <top>22</top>
+            <width>36</width>
+            <height>36</height>
             <texture>$INFO[ListItem.Property(sync_icon)]</texture>
             <aspectratio align="center">keep</aspectratio>
           </control>
           <control type="label">
-            <left>1096</left>
+            <left>814</left>
             <top>28</top>
-            <width>170</width>
+            <width>176</width>
             <height>30</height>
             <font>font10</font>
             <textcolor>FFDEF1F8</textcolor>
@@ -257,7 +293,7 @@
       </control>
 
       <control type="scrollbar" id="1201">
-        <left>1308</left>
+        <left>1306</left>
         <top>150</top>
         <width>10</width>
         <height>748</height>
