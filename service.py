@@ -339,6 +339,43 @@ def _log(message, level=LOG_INFO):
   except Exception:
     pass
 
+def _close_subtitle_overlay_dialogs():
+  # Close subtitle/search/settings overlays so feedback appears on top of video.
+  commands = [
+    'Dialog.Close(subtitlesearch,true)',
+    'Dialog.Close(DialogSubtitles.xml,true)',
+    'Dialog.Close(subtitlesettings,true)',
+    'Dialog.Close(videoosd,true)',
+    'Dialog.Close(DialogSettings.xml,true)',
+  ]
+  for command in commands:
+    try:
+      xbmc.executebuiltin(command)
+    except Exception:
+      pass
+
+def _show_manual_smartsync_completion(success, synced_count=0, partial_failure=False):
+  _close_subtitle_overlay_dialogs()
+  try:
+    xbmc.executebuiltin('Dialog.Close(all,true)')
+  except Exception:
+    pass
+  xbmc.sleep(120)
+
+  if partial_failure:
+    message = 'Timing fixed for the first subtitle, but failed on the second subtitle.'
+  elif success and synced_count > 1:
+    message = __language__(33142)
+  elif success:
+    message = __language__(33140)
+  else:
+    message = __language__(33109)
+
+  try:
+    __msg_box__.ok(__scriptname__, message)
+  except Exception:
+    _notify(message, NOTIFY_INFO if success else NOTIFY_WARNING, timeout=5000)
+
 def _is_disallowed_browse_path(path):
   if not path:
     return True
@@ -1141,9 +1178,29 @@ def _detect_language_from_content(path):
     return best_language
   return 'unk'
 
-def _build_subtitle_prepicker_entries(folder_path):
+def _build_subtitle_prepicker_entries(folder_path, filter_season='', filter_episode=''):
+  candidate_paths = _list_srt_files(folder_path, include_generated=False)
+  filtered_paths = []
+  if filter_season and filter_episode:
+    for path in candidate_paths:
+      if _subtitle_matches_episode(path, filter_season, filter_episode):
+        filtered_paths.append(path)
+    if len(filtered_paths) > 0:
+      _log(
+        'subtitle pre-picker episode filter applied: S%sE%s entries=%d/%d dir=%s'
+        % (filter_season, filter_episode, len(filtered_paths), len(candidate_paths), folder_path),
+        LOG_INFO
+      )
+      candidate_paths = filtered_paths
+    elif len(candidate_paths) > 0:
+      _log(
+        'subtitle pre-picker episode filter found no matches: S%sE%s dir=%s (showing all=%d)'
+        % (filter_season, filter_episode, folder_path, len(candidate_paths)),
+        LOG_WARNING
+      )
+
   entries = []
-  for path in _list_srt_files(folder_path, include_generated=False):
+  for path in candidate_paths:
     language_code = _detect_language_from_filename(path)
     source_rank = 1
     if not language_code:
@@ -1389,6 +1446,36 @@ def _safe_basename(path):
   except Exception:
     return path
 
+def _resolve_episode_filter(video_basename='', preferred_paths=None):
+  season, episode = _extract_season_episode(video_basename)
+  if season and episode:
+    return season, episode
+
+  for path in preferred_paths or []:
+    if not path:
+      continue
+    season, episode = _extract_season_episode(_safe_basename(path))
+    if season and episode:
+      return season, episode
+  return '', ''
+
+def _subtitle_matches_episode(path, season, episode):
+  if not path:
+    return False
+  if not season or not episode:
+    return True
+  path_season, path_episode = _extract_season_episode(_safe_basename(path))
+  return path_season == season and path_episode == episode
+
+def _filter_subtitle_candidates_by_episode(candidates, season, episode):
+  if not season or not episode:
+    return candidates
+  filtered = []
+  for label, path in candidates:
+    if _subtitle_matches_episode(path, season, episode):
+      filtered.append((label, path))
+  return filtered
+
 def _subtitle_menu_label(path, compact=False):
   display_name = _safe_basename(path)
   if compact:
@@ -1454,6 +1541,23 @@ def _collect_smart_sync_reference_candidates(excluded_paths, subtitle1, subtitle
       continue
     seen[key] = True
     deduped.append((label, path))
+
+  _, current_video_basename = _current_video_context()
+  filter_season, filter_episode = _resolve_episode_filter(current_video_basename, [subtitle1, subtitle2])
+  if filter_season and filter_episode:
+    filtered = _filter_subtitle_candidates_by_episode(deduped, filter_season, filter_episode)
+    if len(filtered) > 0:
+      _log(
+        'smart sync reference episode filter applied: S%sE%s candidates=%d/%d'
+        % (filter_season, filter_episode, len(filtered), len(deduped)),
+        LOG_INFO
+      )
+      return filtered
+    _log(
+      'smart sync reference episode filter found no matches: S%sE%s (showing all=%d)'
+      % (filter_season, filter_episode, len(deduped)),
+      LOG_WARNING
+    )
   return deduped
 
 def _select_smart_sync_reference(subtitle1, subtitle2, video_dir, start_dir):
@@ -1950,26 +2054,61 @@ def _run_manual_smart_sync_action():
 
   sync_apply = _run_smart_sync_pipeline(reference_path, target_path)
   if not sync_apply.get('applied'):
+    _show_manual_smartsync_completion(False, synced_count=0)
     return
 
+  synced_primary_path = sync_apply.get('play_path') or target_path
+  synced_temp_paths = []
+  for temp_path in sync_apply.get('temp_paths', []):
+    synced_temp_paths.append(temp_path)
+
+  def _finalize_manual_sync_playback(path_one, path_two=None, temp_paths=None):
+    return _finalize_selected_subtitle_paths(
+      path_one,
+      path_two,
+      subtitle1_dir=os.path.dirname(path_one),
+      smart_sync_temp_files=temp_paths or [],
+      show_notifications=False,
+      register_download_item=False
+    )
+
+  synced_count = 1
   if not __msg_box__.yesno(__scriptname__, __language__(33143)):
+    finalized = _finalize_manual_sync_playback(synced_primary_path, None, synced_temp_paths)
+    _show_manual_smartsync_completion(bool(finalized), synced_count=(synced_count if finalized else 0))
     return
 
   second_target_path, _ = _browse_for_subtitle(__language__(33144), reference_dir)
   if second_target_path is None:
+    finalized = _finalize_manual_sync_playback(synced_primary_path, None, synced_temp_paths)
+    _show_manual_smartsync_completion(bool(finalized), synced_count=(synced_count if finalized else 0))
     return
   if not second_target_path.lower().endswith('.srt') or second_target_path.startswith(__temp__):
     _notify(__language__(33123), NOTIFY_WARNING)
+    finalized = _finalize_manual_sync_playback(synced_primary_path, None, synced_temp_paths)
+    _show_manual_smartsync_completion(bool(finalized), synced_count=(synced_count if finalized else 0))
     return
   if second_target_path.lower() == reference_path.lower() or second_target_path.lower() == target_path.lower():
     _notify(__language__(33097), NOTIFY_WARNING)
+    finalized = _finalize_manual_sync_playback(synced_primary_path, None, synced_temp_paths)
+    _show_manual_smartsync_completion(bool(finalized), synced_count=(synced_count if finalized else 0))
     return
 
   second_sync_apply = _run_smart_sync_pipeline(reference_path, second_target_path)
   if not second_sync_apply.get('applied'):
+    finalized = _finalize_manual_sync_playback(synced_primary_path, None, synced_temp_paths)
+    if finalized:
+      _show_manual_smartsync_completion(False, synced_count=synced_count, partial_failure=True)
+    else:
+      _show_manual_smartsync_completion(False, synced_count=0)
     return
 
-  _notify(__language__(33142), NOTIFY_INFO)
+  synced_secondary_path = second_sync_apply.get('play_path') or second_target_path
+  for temp_path in second_sync_apply.get('temp_paths', []):
+    synced_temp_paths.append(temp_path)
+  synced_count += 1
+  finalized = _finalize_manual_sync_playback(synced_primary_path, synced_secondary_path, synced_temp_paths)
+  _show_manual_smartsync_completion(bool(finalized), synced_count=(synced_count if finalized else 0))
 
 def _load_pysubs2():
   try:
@@ -4499,11 +4638,17 @@ def _auto_match_subtitles(video_dir, video_basename):
 def _browse_for_subtitle(title, browse_dir):
   if not _is_usable_browse_dir(browse_dir):
     browse_dir = ''
+  _, current_video_basename = _current_video_context()
+  filter_season, filter_episode = _resolve_episode_filter(current_video_basename)
 
   show_prepicker = True
   while True:
     if show_prepicker and _is_usable_browse_dir(browse_dir):
-      prepicker_entries = _build_subtitle_prepicker_entries(browse_dir)
+      prepicker_entries = _build_subtitle_prepicker_entries(
+        browse_dir,
+        filter_season=filter_season,
+        filter_episode=filter_episode
+      )
       if len(prepicker_entries) > 0:
         options = []
         for label, _ in prepicker_entries:

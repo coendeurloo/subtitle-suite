@@ -23,7 +23,7 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 - `I Feel Lucky (Single Subtitle)...`
 - `I Feel Lucky (Dual Subtitles)...`
 - `Choose Dual Subtitles...`
-- `Run Smart Sync (manual)...`
+- `Smart Sync Subtitles (Manual)...`
 - `Translate Subtitle (manual)...`
 - `Restore Subtitle Backup...`
 - `Addon Settings...`

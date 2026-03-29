@@ -411,7 +411,7 @@ msgid "Could not save the fixed subtitle. Using it for this playback only."
 msgstr ""
 
 msgctxt "#33120"
-msgid "Fix Subtitle Timing (manual)..."
+msgid "Smart Sync Subtitles (Manual)..."
 msgstr ""
 
 msgctxt "#33121"
