@@ -27,7 +27,7 @@ except Exception:
 
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
 
 from resources.lib.dualsubs import mergesubs
 from resources.lib import smartsync
@@ -456,6 +456,11 @@ def _current_video_context():
     return '', ''
 
   video_name = os.path.splitext(os.path.basename(video_file))[0]
+  try:
+    # Streaming sources often contain URL-encoded names (%20 etc.); decode before matching.
+    video_name = unquote(video_name)
+  except Exception:
+    pass
   return video_dir, video_name
 
 def _current_video_file_path():
@@ -2449,6 +2454,10 @@ def _build_download_query(video_basename):
   base = _as_text(video_basename).strip()
   if not base:
     return ''
+  try:
+    base = unquote(base)
+  except Exception:
+    pass
 
   tokens = re.findall(r'[a-z0-9]+', base.lower())
   if len(tokens) == 0:
@@ -2457,12 +2466,16 @@ def _build_download_query(video_basename):
   ignore_tokens = set([
     '1080p', '720p', '2160p', '480p', 'x264', 'x265', 'h264', 'h265', 'hevc', 'bluray', 'brrip',
     'webdl', 'webrip', 'web', 'hdr', 'dv', 'aac', 'dts', 'ddp5', 'atmos', 'proper', 'repack', 'yts',
+    'bdremux', 'remux',
+    'eng', 'ita', 'rus', 'ger', 'fre', 'spa', 'por', 'jpn', 'kor', 'ara', 'tur', 'multi',
     'yify', 'rarbg', 'am'
   ])
 
   filtered = []
   for token in tokens:
     if token in ignore_tokens:
+      continue
+    if _canonicalize_language_code(token):
       continue
     if re.match(r'^\d{3,4}p$', token):
       continue
@@ -2588,6 +2601,10 @@ def _extract_season_episode(text):
   raw = _as_text(text)
   if not raw:
     return '', ''
+  try:
+    raw = unquote(raw)
+  except Exception:
+    pass
 
   match = re.search(r'[sS](\d{1,3})[.\-_\s]?[eE](\d{1,3})', raw)
   if match:
@@ -2595,6 +2612,12 @@ def _extract_season_episode(text):
 
   match = re.search(r'\b(\d{1,2})[xX](\d{1,3})\b', raw)
   if match:
+    try:
+      # Guard against codec-like artifacts such as "20x265" from URL-encoded stream names.
+      if int(match.group(2)) >= 200:
+        return '', ''
+    except Exception:
+      pass
     return match.group(1).zfill(2), match.group(2).zfill(2)
 
   return '', ''
