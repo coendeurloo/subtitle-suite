@@ -1036,6 +1036,7 @@ msgstr ""
 
 msgctxt "#33305"
 msgid "Sync Unknown"
+msgstr ""
 
 msgctxt "#32507"
 msgid "One bottom, one top"

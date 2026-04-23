@@ -7,6 +7,7 @@ import json
 import difflib
 import struct
 import time
+import zipfile
 import xbmc
 import xbmcaddon
 import xbmcgui,xbmcplugin
@@ -29,17 +30,12 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote
 
-from resources.lib.dualsubs import mergesubs
-from resources.lib import smartsync
-from resources.lib.providers.registry import (
-  get_enabled_subtitle_providers,
-  ProviderAuthError,
-  ProviderRequestError,
-)
-try:
-  from resources.lib.downloadpicker import DownloadPickerDialog
-except Exception:
-  DownloadPickerDialog = None
+mergesubs = None
+smartsync = None
+get_enabled_subtitle_providers = None
+ProviderAuthError = Exception
+ProviderRequestError = Exception
+DownloadPickerDialog = None
 # TODO: LuckyPreviewDialog is a planned feature; luckypreview.py does not exist yet.
 LuckyPreviewDialog = None
 
@@ -64,6 +60,7 @@ LOG_WARNING = getattr(xbmc, 'LOGWARNING', 2)
 LOG_ERROR = getattr(xbmc, 'LOGERROR', 4)
 OPENAI_CHAT_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 DOWNLOAD_TIMEOUT_SECONDS = 45
+MAX_MANUAL_ZIP_SUBTITLE_BYTES = 8 * 1024 * 1024
 # Keep AI translation stable by using fixed request sizing/timeouts.
 # These are intentionally not user-configurable in addon settings.
 OPENAI_TRANSLATION_BATCH_SIZE = 20
@@ -209,17 +206,53 @@ __syncicons__  = translatePath(os.path.join(__media__, 'sync'))
 DOWNLOAD_PICKER_XML = 'DualSubtitlesDownloadPicker.xml'
 LUCKY_PREVIEW_XML = 'DualSubtitlesLuckyPreview.xml'
 
-if xbmcvfs.exists(__temp__):
-  shutil.rmtree(__temp__)
-xbmcvfs.mkdirs(__temp__)
-
 __msg_box__       = xbmcgui.Dialog()
 
 __subtitlepath__  = translatePath("special://subtitles")
 if __subtitlepath__ is None:
   __subtitlepath__ = ""
 
-sys.path.append(__resource__)
+RUNTIME_BOOTSTRAPPED = False
+
+def _ensure_runtime_bootstrap():
+  global RUNTIME_BOOTSTRAPPED
+  global mergesubs
+  global smartsync
+  global get_enabled_subtitle_providers
+  global ProviderAuthError
+  global ProviderRequestError
+  global DownloadPickerDialog
+
+  if RUNTIME_BOOTSTRAPPED:
+    return
+
+  if __resource__ not in sys.path:
+    sys.path.append(__resource__)
+
+  from resources.lib.dualsubs import mergesubs as dualsubs_mergesubs
+  from resources.lib import smartsync as smartsync_module
+  from resources.lib.providers.registry import (
+    get_enabled_subtitle_providers as provider_registry,
+    ProviderAuthError as provider_auth_error,
+    ProviderRequestError as provider_request_error,
+  )
+
+  try:
+    from resources.lib.downloadpicker import DownloadPickerDialog as download_picker_dialog
+  except Exception:
+    download_picker_dialog = None
+
+  if xbmcvfs.exists(__temp__):
+    shutil.rmtree(__temp__)
+  xbmcvfs.mkdirs(__temp__)
+
+  mergesubs = dualsubs_mergesubs
+  smartsync = smartsync_module
+  get_enabled_subtitle_providers = provider_registry
+  ProviderAuthError = provider_auth_error
+  ProviderRequestError = provider_request_error
+  DownloadPickerDialog = download_picker_dialog
+  RUNTIME_BOOTSTRAPPED = True
 
 # Make sure the manual search button is disabled
 try:
@@ -255,19 +288,81 @@ def get_params(string=""):
 
 params = get_params()
 
-def unzip(zip_path, exts):
-  filename = None
-  for file_name in xbmcvfs.listdir(zip_path)[1]:
-    target = os.path.join(__temp__, file_name)
-    if os.path.splitext(target)[1].lower() in exts:
-      filename = target
-      break
+def _read_binary_file(path):
+  file_handle = None
+  try:
+    file_handle = xbmcvfs.File(path)
+    return file_handle.read()
+  finally:
+    try:
+      if file_handle:
+        file_handle.close()
+    except Exception:
+      pass
 
-  if filename is not None:
-    xbmc.executebuiltin('Extract("%s","%s")' % (zip_path, __temp__), True)
-  else:
-    _notify(__language__(33007), NOTIFY_WARNING)
-  return filename
+def _write_text_file(path, text):
+  directory = os.path.dirname(path)
+  if directory:
+    try:
+      xbmcvfs.mkdirs(directory)
+    except Exception:
+      pass
+
+  file_handle = None
+  try:
+    file_handle = xbmcvfs.File(path, 'w')
+    file_handle.write(_as_text(text))
+    return True
+  finally:
+    try:
+      if file_handle:
+        file_handle.close()
+    except Exception:
+      pass
+
+def unzip(zip_path, exts):
+  exts = set([_as_text(ext).lower() for ext in exts or [] if _as_text(ext).strip()])
+  local_zip_path = os.path.join(__temp__, '%s.zip' % (str(uuid.uuid4())))
+
+  try:
+    if not xbmcvfs.copy(zip_path, local_zip_path):
+      raise RuntimeError('copy zip to temp failed')
+
+    with zipfile.ZipFile(local_zip_path, 'r') as archive:
+      for member in archive.infolist():
+        member_name = _as_text(getattr(member, 'filename', '')).replace('\\', '/').strip()
+        if not member_name or member.is_dir():
+          continue
+
+        base_name = os.path.basename(member_name)
+        if not base_name:
+          continue
+        if os.path.splitext(base_name)[1].lower() not in exts:
+          continue
+        if int(getattr(member, 'file_size', 0) or 0) > MAX_MANUAL_ZIP_SUBTITLE_BYTES:
+          _log('zip member skipped because it exceeds size limit: %s (%s bytes)' % (member_name, getattr(member, 'file_size', 0)), LOG_WARNING)
+          continue
+
+        target_path = os.path.join(__temp__, '%s-%s' % (str(uuid.uuid4()), base_name))
+        with archive.open(member, 'r') as source_handle:
+          payload = source_handle.read()
+        if len(payload) > MAX_MANUAL_ZIP_SUBTITLE_BYTES:
+          _log('zip member skipped after read because it exceeds size limit: %s (%s bytes)' % (member_name, len(payload)), LOG_WARNING)
+          continue
+        with open(target_path, 'wb') as target_handle:
+          target_handle.write(payload)
+        return target_path
+  except Exception as exc:
+    _log('zip extraction failed for %s (%s)' % (zip_path, exc), LOG_WARNING)
+  finally:
+    try:
+      if xbmcvfs.exists(local_zip_path):
+        xbmcvfs.delete(local_zip_path)
+    except Exception:
+      pass
+
+  _notify(__language__(33007), NOTIFY_WARNING)
+  return None
 
 def Download(filename):
   listitem = xbmcgui.ListItem(label=filename)
@@ -383,6 +478,39 @@ def _is_disallowed_browse_path(path):
   lower = path.lower()
   return lower.startswith('plugin://') or lower.startswith('pvr://')
 
+def _is_stream_playback_path(path):
+  lower = _as_text(path).strip().lower()
+  if not lower:
+    return False
+  return (
+    lower.startswith('http://')
+    or lower.startswith('https://')
+    or lower.startswith('rtmp://')
+    or lower.startswith('rtsp://')
+  )
+
+def _sanitize_stream_video_basename(value):
+  name = _as_text(value).strip()
+  if not name:
+    return 'StreamVideo'
+  name = name.split('?', 1)[0]
+  name = name.split('#', 1)[0]
+  name = re.sub(r'[<>:"/\\|?*]+', ' ', name)
+  name = re.sub(r'\s+', ' ', name).strip().strip('.')
+  return name or 'StreamVideo'
+
+def _normalize_video_basename(value, fallback=''):
+  name = _as_text(value).strip()
+  if not name:
+    return fallback
+  try:
+    name = unquote(name)
+  except Exception:
+    pass
+  name = re.sub(r'\s+', ' ', name).strip()
+  name = name.rstrip(' .')
+  return name or fallback
+
 def _exists_dir(path):
   try:
     if xbmcvfs.exists(path):
@@ -451,16 +579,29 @@ def _current_video_context():
   if _is_disallowed_browse_path(video_file):
     return '', ''
 
-  video_dir = os.path.dirname(video_file)
-  if not _is_usable_browse_dir(video_dir):
-    return '', ''
-
   video_name = os.path.splitext(os.path.basename(video_file))[0]
   try:
     # Streaming sources often contain URL-encoded names (%20 etc.); decode before matching.
     video_name = unquote(video_name)
   except Exception:
     pass
+  video_name = _normalize_video_basename(_sanitize_stream_video_basename(video_name), fallback='StreamVideo')
+
+  if _is_stream_playback_path(video_file):
+    stream_work_dir = os.path.join(__profile__, 'StreamSubtitles')
+    try:
+      xbmcvfs.mkdirs(stream_work_dir)
+    except Exception:
+      pass
+    if _is_usable_browse_dir(stream_work_dir):
+      _log('stream playback context: using local subtitle work dir=%s' % (stream_work_dir), LOG_INFO)
+      return stream_work_dir, video_name
+    return '', ''
+
+  video_dir = os.path.dirname(video_file)
+  if not _is_usable_browse_dir(video_dir):
+    return '', ''
+
   return video_dir, video_name
 
 def _current_video_file_path():
@@ -480,6 +621,40 @@ def _compute_file_hash_and_size(file_path):
     return '', 0
   if file_path.startswith('plugin://'):
     return '', 0
+  chunk_size = 65536
+
+  try:
+    vfs_file = xbmcvfs.File(file_path)
+    try:
+      file_size = int(vfs_file.size())
+      if file_size <= 0:
+        return '', 0
+      if file_size < (chunk_size * 2):
+        return '', file_size
+
+      file_hash = file_size
+      for _ in range(int(chunk_size / 8)):
+        block = vfs_file.read(8)
+        if not isinstance(block, bytes) or len(block) < 8:
+          raise RuntimeError('short or non-bytes block from xbmcvfs')
+        file_hash += struct.unpack('<Q', block)[0]
+
+      vfs_file.seek(max(0, file_size - chunk_size), os.SEEK_SET)
+      for _ in range(int(chunk_size / 8)):
+        block = vfs_file.read(8)
+        if not isinstance(block, bytes) or len(block) < 8:
+          raise RuntimeError('short or non-bytes block from xbmcvfs')
+        file_hash += struct.unpack('<Q', block)[0]
+
+      file_hash &= 0xFFFFFFFFFFFFFFFF
+      return ('%016x' % (file_hash)), file_size
+    finally:
+      try:
+        vfs_file.close()
+      except Exception:
+        pass
+  except Exception:
+    pass
 
   try:
     file_size = int(os.path.getsize(file_path))
@@ -488,8 +663,6 @@ def _compute_file_hash_and_size(file_path):
 
   if file_size <= 0:
     return '', 0
-
-  chunk_size = 65536
   if file_size < (chunk_size * 2):
     return '', file_size
 
@@ -668,11 +841,11 @@ def _language_suffix_aliases(language_code):
 def _language_tail_matches(tail_lower, language_code, strict):
   for alias in _language_suffix_aliases(language_code):
     if strict:
-      pattern = r'^[._-]%s(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
+      pattern = r'^[._-]+%s(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
       if re.match(pattern, tail_lower):
         return True
     else:
-      pattern = r'[._-]%s(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
+      pattern = r'[._-]+%s(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
       if re.search(pattern, tail_lower):
         return True
   return False
@@ -1330,9 +1503,11 @@ def _cleanup_generated_movie_sidecars(video_dir, video_basename):
   if not video_dir or not video_basename:
     return
 
+  safe_video_basename = _normalize_video_basename(video_basename, fallback=video_basename)
+
   candidate_names = set([
-    ('%s..srt' % (video_basename)).lower(),
-    ('%s..ass' % (video_basename)).lower(),
+    ('%s..srt' % (safe_video_basename)).lower(),
+    ('%s..ass' % (safe_video_basename)).lower(),
   ])
 
   try:
@@ -2451,13 +2626,9 @@ def _run_restore_backup_action():
     _log('restore backup failed for %s (%s)' % (target_path, exc), LOG_WARNING)
 
 def _build_download_query(video_basename):
-  base = _as_text(video_basename).strip()
+  base = _normalize_video_basename(video_basename)
   if not base:
     return ''
-  try:
-    base = unquote(base)
-  except Exception:
-    pass
 
   tokens = re.findall(r'[a-z0-9]+', base.lower())
   if len(tokens) == 0:
@@ -2488,17 +2659,18 @@ def _build_download_query(video_basename):
   return ' '.join(filtered[:8])
 
 def _build_download_context(video_dir, video_basename):
-  query = _build_download_query(video_basename)
-  season, episode = _extract_season_episode(video_basename)
+  safe_video_basename = _normalize_video_basename(video_basename, fallback=_as_text(video_basename).strip())
+  query = _build_download_query(safe_video_basename)
+  season, episode = _extract_season_episode(safe_video_basename)
   metadata = _current_video_metadata()
   video_path = _current_video_file_path()
   file_hash, file_size = _compute_file_hash_and_size(video_path)
   return {
     'video_dir': video_dir,
-    'video_basename': video_basename,
+    'video_basename': safe_video_basename,
     'video_path': video_path,
     'query': query,
-    'year': _extract_release_year(video_basename),
+    'year': _extract_release_year(safe_video_basename),
     'season': season,
     'episode': episode,
     'is_tvshow': bool(season and episode),
@@ -3439,9 +3611,7 @@ def _serialize_download_result_for_cache(result):
 def _save_download_results_cache(payload):
   cache_path = _download_results_cache_file()
   try:
-    with open(cache_path, 'wb') as file_handle:
-      file_handle.write(_to_utf8_bytes(json.dumps(payload)))
-    return True
+    return _write_text_file(cache_path, json.dumps(payload))
   except Exception as exc:
     _log('download cache write failed: %s' % (exc), LOG_WARNING)
     return False
@@ -3451,8 +3621,7 @@ def _load_download_results_cache(token):
   if not xbmcvfs.exists(cache_path):
     return None
   try:
-    with open(cache_path, 'rb') as file_handle:
-      data = file_handle.read()
+    data = _read_binary_file(cache_path)
     payload = json.loads(_as_text(data))
   except Exception as exc:
     _log('download cache read failed: %s' % (exc), LOG_WARNING)
@@ -3606,7 +3775,8 @@ def _write_download_payload_to_target(context, language_code, selected_result):
     raise RuntimeError(__language__(33193))
 
   target_language = _canonicalize_language_code(language_code) or language_code.lower()
-  target_path = os.path.join(context['video_dir'], '%s.%s.srt' % (context['video_basename'], target_language))
+  safe_video_basename = _normalize_video_basename(context.get('video_basename', ''), fallback='subtitle')
+  target_path = os.path.join(context['video_dir'], '%s.%s.srt' % (safe_video_basename, target_language))
   try:
     _replace_file_with_dualsubs_backup(temp_subtitle, target_path, backup_existing=True)
     return target_path
@@ -4558,18 +4728,20 @@ def _attempt_auto_download_for_automatch(automatch, video_dir, video_basename):
 
 def _match_subtitle_name(subtitle_name, video_basename, language_code, strict):
   name_lower = subtitle_name.lower()
-  base_lower = video_basename.lower()
+  normalized_video_basename = _normalize_video_basename(video_basename)
+  base_lower = normalized_video_basename.lower()
 
   if not name_lower.endswith('.srt'):
     return False
-  if not name_lower.startswith(base_lower):
-    return False
 
   name_without_ext = subtitle_name[:-4]
-  if len(name_without_ext) <= len(video_basename):
+  normalized_name_without_ext = _normalize_video_basename(name_without_ext)
+  if len(normalized_name_without_ext) <= len(normalized_video_basename):
+    return False
+  if not normalized_name_without_ext.lower().startswith(base_lower):
     return False
 
-  tail = name_without_ext[len(video_basename):]
+  tail = normalized_name_without_ext[len(normalized_video_basename):]
   if not tail:
     return False
   if tail[0] not in ['.', '-', '_']:
@@ -6548,27 +6720,35 @@ elif action == 'search':
   Search()
 
 elif action == 'browsedual':
+  _ensure_runtime_bootstrap()
   _run_dual_subtitle_flow()
 
 elif action == 'downloadmanual':
+  _ensure_runtime_bootstrap()
   _run_manual_download_action()
 
 elif action == 'ifeelluckysingle':
+  _ensure_runtime_bootstrap()
   _run_i_feel_lucky_single_flow()
 
 elif action == 'ifeelluckydual' or action == 'ifeellucky':
+  _ensure_runtime_bootstrap()
   _run_i_feel_lucky_flow()
 
 elif action == 'downloadpick':
+  _ensure_runtime_bootstrap()
   _run_manual_download_pick_action()
 
 elif action == 'smartsyncmanual':
+  _ensure_runtime_bootstrap()
   _run_manual_smart_sync_action()
 
 elif action == 'translatemanual':
+  _ensure_runtime_bootstrap()
   _run_manual_translation_action()
 
 elif action == 'restorebackup':
+  _ensure_runtime_bootstrap()
   _run_restore_backup_action()
 
 elif action == 'settings':

@@ -37,6 +37,18 @@
         <setting label="33063" type="text" enable="false"/>
     </category>
 
+    <category label="33230">
+        <setting id="lucky_single_language" type="labelenum" label="33276" default="Disabled" subsetting="true" values="Disabled|Afrikaans (af)|Albanian (sq)|Arabic (ar)|Armenian (hy)|Azerbaijani (az)|Basque (eu)|Belarusian (be)|Bengali (bn)|Bosnian (bs)|Bulgarian (bg)|Catalan (ca)|Chinese (zh)|Croatian (hr)|Czech (cs)|Danish (da)|Dutch (nl)|English (en)|Estonian (et)|Finnish (fi)|French (fr)|Galician (gl)|Georgian (ka)|German (de)|Greek (el)|Hebrew (he)|Hindi (hi)|Hungarian (hu)|Icelandic (is)|Indonesian (id)|Irish (ga)|Italian (it)|Japanese (ja)|Kazakh (kk)|Korean (ko)|Latvian (lv)|Lithuanian (lt)|Macedonian (mk)|Malay (ms)|Norwegian (no)|Persian (fa)|Polish (pl)|Portuguese (pt)|Romanian (ro)|Russian (ru)|Serbian (sr)|Slovak (sk)|Slovenian (sl)|Spanish (es)|Swedish (sv)|Tamil (ta)|Thai (th)|Turkish (tr)|Ukrainian (uk)|Urdu (ur)|Vietnamese (vi)|Welsh (cy)"/>
+        <setting label="33278" type="text" enable="false"/>
+        <setting type="lsep"/>
+        <setting id="lucky_enable_download" type="bool" label="33231" default="true" subsetting="true"/>
+        <setting id="lucky_enable_smartsync" type="bool" label="33232" default="true" subsetting="true"/>
+        <setting id="lucky_allow_english_likely" type="bool" label="33233" default="true" subsetting="true"/>
+        <setting id="lucky_enable_ai_translate" type="bool" label="33234" default="true" subsetting="true"/>
+        <setting id="lucky_prompt_english_test" type="bool" label="33257" default="true" subsetting="true"/>
+        <setting id="lucky_continue_on_partial" type="bool" label="33235" default="true" subsetting="true" visible="false"/>
+    </category>
+
     <category label="33047">
         <setting id="no_match_behavior" type="labelenum" label="33020" default="33022" subsetting="true" lvalues="33022|33023|33024"/>
         <setting label="33054" type="text" enable="false"/>
