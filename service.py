@@ -1540,6 +1540,11 @@ def _build_merged_ass_output_path(primary_subtitle_path):
   work_dir = _get_dualsubtitles_work_dir_for_path(primary_subtitle_path)
   return os.path.join(work_dir, '%s.dual.ass' % (base_name))
 
+def _build_single_ass_output_path(primary_subtitle_path):
+  base_name = _derive_output_base_name_from_subtitle(primary_subtitle_path)
+  work_dir = _get_dualsubtitles_work_dir_for_path(primary_subtitle_path)
+  return os.path.join(work_dir, '%s.single.ass' % (base_name))
+
 def _create_smart_sync_progress():
   progress = None
   try:
@@ -1956,7 +1961,29 @@ def _select_smart_sync_apply_mode():
     return 'playback_only'
   return 'skip'
 
-def _run_smart_sync_pipeline(reference_path, target_path, allow_ai_fallback=True):
+def _search_better_subtitle_for_target(target_path, video_dir='', video_basename=''):
+  if not _is_subtitle_download_enabled():
+    _notify(__language__(33172), NOTIFY_WARNING)
+    return None
+
+  if not video_dir or not video_basename:
+    video_dir, video_basename = _current_video_context()
+  if not video_dir or not video_basename:
+    _notify(__language__(33116), NOTIFY_WARNING)
+    return None
+
+  language_code = _guess_language_code_from_path(target_path)
+  if not language_code or language_code == 'auto':
+    _notify(__language__(33115), NOTIFY_INFO)
+    language_code, language_label = _select_download_language()
+    if not language_code:
+      return None
+  else:
+    language_label = _language_display_name(language_code)
+
+  return _run_download_for_language(video_dir, video_basename, language_code, language_label)
+
+def _run_smart_sync_pipeline(reference_path, target_path, allow_ai_fallback=True, video_dir='', video_basename=''):
   result = {
     'applied': False,
     'play_path': target_path,
@@ -1980,10 +2007,18 @@ def _run_smart_sync_pipeline(reference_path, target_path, allow_ai_fallback=True
   if local_result.get('low_confidence'):
     low_conf_title = __language__(33099) % (_smart_sync_confidence_percent(local_result), local_result.get('median_error_ms', 0))
     if allow_ai_fallback:
-      low_conf_choice = __msg_box__.select(low_conf_title, [__language__(33110), __language__(33111), __language__(33112)])
-      if low_conf_choice == 2 or low_conf_choice < 0:
+      low_conf_choice = __msg_box__.select(low_conf_title, [__language__(33110), __language__(33111), __language__(33114), __language__(33112)])
+      if low_conf_choice == 3 or low_conf_choice < 0:
         _close_progress(progress)
         _log('smart sync skipped due low confidence user choice', LOG_INFO)
+        return result
+
+      if low_conf_choice == 2:
+        _close_progress(progress)
+        better_subtitle = _search_better_subtitle_for_target(target_path, video_dir, video_basename)
+        if better_subtitle:
+          result['applied'] = True
+          result['play_path'] = better_subtitle
         return result
 
       if low_conf_choice == 1:
@@ -2000,12 +2035,26 @@ def _run_smart_sync_pipeline(reference_path, target_path, allow_ai_fallback=True
           chosen_result = ai_result
           _notify(__language__(33102), NOTIFY_INFO)
         else:
-          fallback_choice = __msg_box__.select(__language__(33105), [__language__(33110), __language__(33112)])
+          fallback_choice = __msg_box__.select(__language__(33105), [__language__(33110), __language__(33114), __language__(33112)])
+          if fallback_choice == 1:
+            _close_progress(progress)
+            better_subtitle = _search_better_subtitle_for_target(target_path, video_dir, video_basename)
+            if better_subtitle:
+              result['applied'] = True
+              result['play_path'] = better_subtitle
+            return result
           if fallback_choice != 0:
             _close_progress(progress)
             return result
     else:
-      low_conf_choice = __msg_box__.select(low_conf_title, [__language__(33110), __language__(33112)])
+      low_conf_choice = __msg_box__.select(low_conf_title, [__language__(33110), __language__(33114), __language__(33112)])
+      if low_conf_choice == 1:
+        _close_progress(progress)
+        better_subtitle = _search_better_subtitle_for_target(target_path, video_dir, video_basename)
+        if better_subtitle:
+          result['applied'] = True
+          result['play_path'] = better_subtitle
+        return result
       if low_conf_choice != 0:
         _close_progress(progress)
         _log('smart sync skipped due low confidence user choice (local-only mode)', LOG_INFO)
@@ -2184,7 +2233,7 @@ def _maybe_run_smart_sync(subtitle1, subtitle2, video_dir, start_dir):
   applied_count = 0
 
   for path_to_sync in target_paths:
-    sync_apply = _run_smart_sync_pipeline(reference_path, path_to_sync, allow_ai_fallback=False)
+    sync_apply = _run_smart_sync_pipeline(reference_path, path_to_sync, allow_ai_fallback=False, video_dir=video_dir, video_basename=video_basename)
     if not sync_apply.get('applied'):
       continue
 
@@ -2232,7 +2281,7 @@ def _run_manual_smart_sync_action():
     _notify(__language__(33097), NOTIFY_WARNING)
     return
 
-  sync_apply = _run_smart_sync_pipeline(reference_path, target_path)
+  sync_apply = _run_smart_sync_pipeline(reference_path, target_path, video_dir=video_dir, video_basename=video_basename)
   if not sync_apply.get('applied'):
     _show_manual_smartsync_completion(False, synced_count=0)
     return
@@ -2274,7 +2323,7 @@ def _run_manual_smart_sync_action():
     _show_manual_smartsync_completion(bool(finalized), synced_count=(synced_count if finalized else 0))
     return
 
-  second_sync_apply = _run_smart_sync_pipeline(reference_path, second_target_path)
+  second_sync_apply = _run_smart_sync_pipeline(reference_path, second_target_path, video_dir=video_dir, video_basename=video_basename)
   if not second_sync_apply.get('applied'):
     finalized = _finalize_manual_sync_playback(synced_primary_path, None, synced_temp_paths)
     if finalized:
@@ -4447,7 +4496,29 @@ def _run_lucky_smartsync_to_reference(reference_path, target_path, force_apply=F
 
   try:
     local_result = _run_smart_sync_local(reference_path, target_path)
-    sync_apply = _apply_synced_subtitle_to_target(target_path, local_result['synced_subs'])
+    chosen_result = local_result
+    if local_result.get('low_confidence'):
+      _log(
+        'lucky smart sync local low confidence: ref=%s target=%s confidence=%.3f median=%s p90=%s knot_span=%s' % (
+          reference_path,
+          target_path,
+          local_result.get('confidence', 0.0),
+          local_result.get('median_error_ms', ''),
+          local_result.get('p90_error_ms', ''),
+          local_result.get('knot_span_ms', ''),
+        ),
+        LOG_WARNING
+      )
+      try:
+        ai_result = _run_smart_sync_ai(reference_path, target_path)
+      except Exception as ai_exc:
+        _log('lucky smart sync ai fallback failed: ref=%s target=%s error=%s' % (reference_path, target_path, ai_exc), LOG_WARNING)
+        ai_result = None
+      if ai_result is None:
+        return response
+      chosen_result = ai_result
+
+    sync_apply = _apply_synced_subtitle_to_target(target_path, chosen_result['synced_subs'])
   except Exception as exc:
     _log('lucky smart sync failed: ref=%s target=%s error=%s' % (reference_path, target_path, exc), LOG_WARNING)
     return response
@@ -4900,7 +4971,10 @@ def _prepare_and_merge_subtitles(subs):
       substemp.append(subtemp)
     merged_temp = mergesubs(substemp)
 
-    merged_output = _build_merged_ass_output_path(subs[0])
+    if len(subs) > 1:
+      merged_output = _build_merged_ass_output_path(subs[0])
+    else:
+      merged_output = _build_single_ass_output_path(subs[0])
     if xbmcvfs.exists(merged_output):
       xbmcvfs.delete(merged_output)
 

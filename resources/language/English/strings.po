@@ -351,7 +351,7 @@ msgid "Timing looks off.\nAverage error: %d ms\nEstimated shift: %d ms"
 msgstr ""
 
 msgctxt "#33099"
-msgid "Low confidence in timing fix (%d%%, average error %d ms)."
+msgid "This subtitle probably does not match this video release.\nSmart Sync is not confident it can fix the timing.\nConfidence: %d%%. Average timing error: %d ms."
 msgstr ""
 
 msgctxt "#33100"
@@ -375,7 +375,7 @@ msgid "AI timing fix needs an OpenAI API key."
 msgstr ""
 
 msgctxt "#33105"
-msgid "AI could not produce a usable timing fix."
+msgid "AI could not find a safe timing fix.\nThis subtitle probably belongs to a different release of the video."
 msgstr ""
 
 msgctxt "#33106"
@@ -383,7 +383,7 @@ msgid "AI returned no valid timing matches."
 msgstr ""
 
 msgctxt "#33107"
-msgid "Timing fix confidence: %d%% (average error %d ms)."
+msgid "Smart Sync checked the timing: %d%% confidence, average error %d ms."
 msgstr ""
 
 msgctxt "#33108"
@@ -391,7 +391,7 @@ msgid "Timing fixed (%s)."
 msgstr ""
 
 msgctxt "#33109"
-msgid "Timing fix failed."
+msgid "Timing fix failed. The subtitle may not match this video release."
 msgstr ""
 
 msgctxt "#33110"
@@ -404,6 +404,18 @@ msgstr ""
 
 msgctxt "#33112"
 msgid "Skip timing fix"
+msgstr ""
+
+msgctxt "#33114"
+msgid "Search for a better subtitle"
+msgstr ""
+
+msgctxt "#33115"
+msgid "Could not tell which language this subtitle is. Choose the language to search for."
+msgstr ""
+
+msgctxt "#33116"
+msgid "Could not search for a better subtitle because no video is currently playing."
 msgstr ""
 
 msgctxt "#33113"

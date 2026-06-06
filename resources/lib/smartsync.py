@@ -4,7 +4,7 @@ import copy
 import re
 from bisect import bisect_left
 
-LOW_CONFIDENCE_THRESHOLD = 0.55
+LOW_CONFIDENCE_THRESHOLD = 0.70
 RAW_MISMATCH_MEDIAN_MS = 2200
 RAW_MISMATCH_OFFSET_MS = 1500
 MATCH_OK_THRESHOLD_MS = 1200
@@ -20,6 +20,9 @@ GLOBAL_SCAN_FINE_STEP_MS = 250
 GLOBAL_SCAN_FINE_RANGE_MS = 2500
 LOCAL_WINDOW_SCAN_STEP_MS = 250
 LOCAL_WINDOW_SCAN_RANGE_MS = 30000
+LOCAL_SYNC_P90_LOW_CONFIDENCE_MS = 3000
+KNOT_JUMP_LOW_CONFIDENCE_MS = 45000
+KNOT_SPAN_LOW_CONFIDENCE_MS = 90000
 
 
 def _as_text(value):
@@ -466,6 +469,25 @@ def _apply_knots(target_subs, knots):
     return synced
 
 
+def _knot_instability(knots):
+    offsets = [float(item.get('offset', 0.0)) for item in knots or []]
+    if len(offsets) < 2:
+        return {
+            'unstable': False,
+            'max_jump_ms': 0,
+            'span_ms': int(round(abs(offsets[0]))) if offsets else 0,
+        }
+
+    jumps = [abs(offsets[index] - offsets[index - 1]) for index in range(1, len(offsets))]
+    max_jump = max(jumps) if jumps else 0.0
+    span = max(offsets) - min(offsets)
+    return {
+        'unstable': max_jump >= KNOT_JUMP_LOW_CONFIDENCE_MS or span >= KNOT_SPAN_LOW_CONFIDENCE_MS,
+        'max_jump_ms': int(round(max_jump)),
+        'span_ms': int(round(span)),
+    }
+
+
 def _evaluate_alignment(reference_points, synced_points):
     if not reference_points or not synced_points:
         return {
@@ -571,6 +593,10 @@ def assess_pair(reference_subs, target_subs):
     likely_mismatch = (
         raw_median >= RAW_MISMATCH_MEDIAN_MS or
         (
+            raw_p90 >= LOCAL_SYNC_P90_LOW_CONFIDENCE_MS and
+            raw_coverage <= 0.65
+        ) or
+        (
             abs(global_offset) >= RAW_MISMATCH_OFFSET_MS and
             overlap_improvement >= 0.18 and
             raw_coverage <= 0.75
@@ -602,13 +628,21 @@ def sync_local(reference_subs, target_subs):
     synced_subs = _apply_knots(target_subs, knots)
     synced_points = _subtitle_points(synced_subs)
     metrics = _evaluate_alignment(reference_points, synced_points)
+    knot_quality = _knot_instability(knots)
+    low_confidence = (
+        metrics['confidence'] < LOW_CONFIDENCE_THRESHOLD or
+        metrics['p90_error_ms'] >= LOCAL_SYNC_P90_LOW_CONFIDENCE_MS or
+        knot_quality['unstable']
+    )
 
     metrics.update({
         'method': 'local',
         'estimated_global_offset_ms': int(round(global_offset)),
         'knots': [{'time': int(round(k['time'])), 'offset': int(round(k['offset'])), 'count': int(k['count'])} for k in knots],
+        'knot_max_jump_ms': knot_quality['max_jump_ms'],
+        'knot_span_ms': knot_quality['span_ms'],
         'synced_subs': synced_subs,
-        'low_confidence': metrics['confidence'] < LOW_CONFIDENCE_THRESHOLD,
+        'low_confidence': low_confidence,
     })
     return metrics
 
