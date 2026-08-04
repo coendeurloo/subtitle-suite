@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.subtitlesuite"
        name="Subtitle Suite"
-       version="2.9.6"
+       version="2.9.7"
        provider-name="coendeurloo">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -21,6 +21,11 @@ The addon opens from the subtitle search screen and supports:
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
     <news>
+beta 0.9.5 (2026-08-04)
+- Recognized numbered subtitle variants such as `.ru2.srt` as language matches.
+- Resolved duplicate-language subtitle candidates by comparing timing against the other selected language.
+- AI translations now archive superseded same-language variants in `DualSubtitles` after writing the canonical target subtitle.
+
 beta 0.9.4 (2026-06-06)
 - Improved Smart Sync safety for subtitles from the wrong video release: unstable timing fixes are now treated as low-confidence instead of being applied silently
 - Added plain-language Smart Sync warnings explaining that a subtitle probably does not match the current video release
