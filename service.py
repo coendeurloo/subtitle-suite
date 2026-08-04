@@ -49,7 +49,10 @@ LEGACY_ADDON_IDS = ['service.subtitles.dualsubtitles']
 LEGACY_PROFILE_MIGRATION_SETTING = 'legacy_profile_migrated_from'
 
 LANGUAGE_CODE_REGEX = re.compile(r'\(([a-z]{2,3}(?:-[a-z0-9]{2,8})?)\)\s*$', re.IGNORECASE)
-LANGUAGE_SUFFIX_REGEX = re.compile(r'[._-]([a-z]{2,3}(?:-[a-z0-9]{2,8})?)$', re.IGNORECASE)
+# Subtitle folders commonly contain numbered language variants such as
+# Movie.ru2.srt.  The number is a variant marker, not part of the language
+# code, so keep capturing the canonical language while accepting the suffix.
+LANGUAGE_SUFFIX_REGEX = re.compile(r'[._-]([a-z]{2,3})(?:[0-9]+)?(?:-[a-z0-9]{2,8})?$', re.IGNORECASE)
 LANGUAGE_TOKEN_REGEX = re.compile(r'[._\-\s\[\]\(\)]+')
 NOTIFY_INFO = getattr(xbmcgui, 'NOTIFICATION_INFO', '')
 NOTIFY_WARNING = getattr(xbmcgui, 'NOTIFICATION_WARNING', '')
@@ -841,11 +844,11 @@ def _language_suffix_aliases(language_code):
 def _language_tail_matches(tail_lower, language_code, strict):
   for alias in _language_suffix_aliases(language_code):
     if strict:
-      pattern = r'^[._-]+%s(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
+      pattern = r'^[._-]+%s(?:[0-9]+)?(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
       if re.match(pattern, tail_lower):
         return True
     else:
-      pattern = r'[._-]+%s(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
+      pattern = r'[._-]+%s(?:[0-9]+)?(?:-[a-z0-9]{2,8})?$' % (re.escape(alias))
       if re.search(pattern, tail_lower):
         return True
   return False
@@ -1191,7 +1194,7 @@ def _build_translated_subtitle_path(source_subtitle_path, target_language_code):
   if not target_code:
     target_code = target_language_code.lower()
 
-  match = re.match(r'^(.*?)([._-])([a-z]{2,3}(?:-[a-z0-9]{2,8})?)$', source_base, re.IGNORECASE)
+  match = re.match(r'^(.*?)([._-])([a-z]{2,3})(?:[0-9]+)?(?:-[a-z0-9]{2,8})?$', source_base, re.IGNORECASE)
   if match:
     translated_base = '%s%s%s' % (match.group(1), match.group(2), target_code)
   else:
@@ -1475,6 +1478,54 @@ def _replace_file_with_dualsubs_backup(source_path, target_path, backup_existing
     'backup_path': backup_path,
     'had_existing': had_existing,
   }
+
+def _subtitle_basename_without_language(path):
+  if not path:
+    return ''
+  source_base = os.path.splitext(os.path.basename(path))[0]
+  suffix_match = LANGUAGE_SUFFIX_REGEX.search(source_base)
+  if suffix_match:
+    source_base = source_base[:suffix_match.start()]
+  return source_base
+
+def _archive_subtitle_variant(path):
+  """Move an inactive subtitle variant into the per-video backup folder."""
+  if not path or not xbmcvfs.exists(path):
+    return False
+
+  work_dir = _get_dualsubtitles_work_dir_for_path(path)
+  base_name = os.path.basename(path)
+  destination = os.path.join(work_dir, '%s.bak' % (base_name))
+  if xbmcvfs.exists(destination):
+    destination = os.path.join(
+      work_dir,
+      '%s.%s.bak' % (base_name, str(uuid.uuid4())[:8])
+    )
+
+  if not xbmcvfs.copy(path, destination):
+    return False
+  _set_writable_permissions(destination, is_directory=False)
+  if not xbmcvfs.delete(path):
+    _log('archived subtitle variant but could not remove active copy: %s' % (path), LOG_WARNING)
+    return False
+  return True
+
+def _archive_ai_translation_variants(source_subtitle_path, target_language_code, target_path):
+  """Remove other same-language sidecars after an AI translation succeeds."""
+  source_dir = os.path.dirname(source_subtitle_path)
+  source_video_basename = _subtitle_basename_without_language(source_subtitle_path)
+  target_code = _canonicalize_language_code(target_language_code)
+  if not source_dir or not source_video_basename or not target_code:
+    return
+
+  variants = _find_subtitle_matches(source_dir, source_video_basename, target_code, strict=True)
+  for variant_path in variants:
+    if variant_path.lower() in [source_subtitle_path.lower(), target_path.lower()]:
+      continue
+    if _archive_subtitle_variant(variant_path):
+      _log('archived superseded AI translation variant: %s' % (variant_path), LOG_INFO)
+    else:
+      _log('failed to archive superseded AI translation variant: %s' % (variant_path), LOG_WARNING)
 
 def _build_smartsync_saved_output_path(target_path):
   directory = os.path.dirname(target_path)
@@ -2418,6 +2469,11 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     translated_path = _build_translated_subtitle_path(source_subtitle_path, target_language_code)
     try:
       _replace_file_with_dualsubs_backup(temp_output, translated_path, backup_existing=True)
+      _archive_ai_translation_variants(
+        source_subtitle_path,
+        target_language_code,
+        translated_path
+      )
     except Exception as write_exc:
       _log('ai translation write failed for %s (%s)' % (translated_path, write_exc), LOG_WARNING)
       raise RuntimeError(__language__(33071))
@@ -4469,13 +4525,108 @@ def _assess_subtitle_pair_mismatch(reference_path, target_path):
     target_subs, target_local = _load_subtitle_for_processing(target_path)
     return smartsync.assess_pair(reference_subs, target_subs)
   except Exception as exc:
-    _log('lucky mismatch assessment failed: ref=%s target=%s error=%s' % (reference_path, target_path, exc), LOG_WARNING)
+    _log('subtitle pair timing assessment failed: ref=%s target=%s error=%s' % (reference_path, target_path, exc), LOG_WARNING)
     return {}
   finally:
     if reference_local:
       xbmcvfs.delete(reference_local)
     if target_local:
       xbmcvfs.delete(target_local)
+
+def _subtitle_alignment_score(metrics):
+  """Return a lower-is-better score for comparing subtitle timing quality."""
+  required_keys = [
+    'raw_median_error_ms',
+    'raw_p90_error_ms',
+    'estimated_global_offset_ms',
+    'raw_coverage',
+  ]
+  for key in required_keys:
+    if key not in metrics:
+      return None
+
+  try:
+    median_error = float(metrics.get('raw_median_error_ms', 0))
+    p90_error = float(metrics.get('raw_p90_error_ms', 0))
+    global_offset = abs(float(metrics.get('estimated_global_offset_ms', 0)))
+    coverage = float(metrics.get('raw_coverage', 0.0))
+  except Exception:
+    return None
+
+  # Median error is the strongest signal.  The other terms help distinguish
+  # a stable, small offset from a candidate that only matches by accident.
+  score = median_error
+  score += 0.35 * p90_error
+  score += 0.50 * global_offset
+  score += 1000.0 * max(0.0, 1.0 - coverage)
+  if metrics.get('likely_mismatch'):
+    score += 500.0
+  return score
+
+def _pick_best_timed_subtitle_match(candidates, reference_path):
+  """Resolve duplicate language variants when one reference is available."""
+  if len(candidates) <= 1:
+    return candidates[0] if candidates else ''
+  if not reference_path:
+    return ''
+
+  scored = []
+  for candidate_path in candidates:
+    if not candidate_path or candidate_path.lower() == reference_path.lower():
+      continue
+    metrics = _assess_subtitle_pair_mismatch(reference_path, candidate_path)
+    score = _subtitle_alignment_score(metrics)
+    if score is None:
+      continue
+    scored.append({
+      'path': candidate_path,
+      'score': score,
+      'metrics': metrics,
+    })
+
+  # Do not silently guess when timing analysis could not evaluate every
+  # candidate.  Manual selection is safer than choosing an unverified file.
+  if len(scored) != len(candidates):
+    _log(
+      'duplicate subtitle timing resolution skipped: evaluated=%d candidates=%d reference=%s'
+      % (len(scored), len(candidates), reference_path),
+      LOG_WARNING
+    )
+    return ''
+
+  scored.sort(key=lambda item: (item['score'], os.path.basename(item['path']).lower()))
+  best = scored[0]
+  second = scored[1]
+  score_gap = second['score'] - best['score']
+  minimum_gap = max(500.0, best['score'] * 0.15)
+  if score_gap < minimum_gap:
+    _log(
+      'duplicate subtitle timing resolution remained ambiguous: first=%s score=%.1f second=%s score=%.1f reference=%s'
+      % (
+        best['path'],
+        best['score'],
+        second['path'],
+        second['score'],
+        reference_path
+      ),
+      LOG_WARNING
+    )
+    return ''
+
+  metrics = best['metrics']
+  _log(
+    'duplicate subtitle timing resolution selected=%s score=%.1f offset=%s median=%s coverage=%s reference=%s'
+    % (
+      best['path'],
+      best['score'],
+      metrics.get('estimated_global_offset_ms', ''),
+      metrics.get('raw_median_error_ms', ''),
+      metrics.get('raw_coverage', ''),
+      reference_path
+    ),
+    LOG_INFO
+  )
+  return best['path']
 
 def _run_lucky_smartsync_to_reference(reference_path, target_path, force_apply=False):
   response = {
@@ -4866,6 +5017,20 @@ def _auto_match_subtitles(video_dir, video_basename):
   matches1 = _find_subtitle_matches(video_dir, video_basename, language1, strict)
   matches2 = _find_subtitle_matches(video_dir, video_basename, language2, strict)
   _log('auto-match candidates: strict=%s lang1=%s count1=%d lang2=%s count2=%d' % (strict, language1, len(matches1), language2, len(matches2)), LOG_DEBUG)
+
+  # A folder can contain multiple files for one language, for example the
+  # canonical AI output Movie.ru.srt and an older Movie.ru2.srt.  If the other
+  # preferred language has exactly one candidate, use it as a timing reference
+  # to choose the best-aligned variant instead of declaring the whole pair
+  # ambiguous.
+  if len(matches1) == 1 and len(matches2) > 1:
+    selected_match = _pick_best_timed_subtitle_match(matches2, matches1[0])
+    if selected_match:
+      matches2 = [selected_match]
+  elif len(matches2) == 1 and len(matches1) > 1:
+    selected_match = _pick_best_timed_subtitle_match(matches1, matches2[0])
+    if selected_match:
+      matches1 = [selected_match]
 
   if len(matches1) == 1 and len(matches2) == 1 and matches1[0] != matches2[0]:
     result['mode'] = 'full'
