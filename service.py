@@ -17,16 +17,6 @@ import shutil
 
 import uuid
 
-try:
-  import chardet
-except Exception:
-  chardet = None
-
-try:
-  from resources.lib.charset_normalizer.api import from_bytes
-except Exception:
-  from_bytes = None
-
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote
@@ -80,6 +70,10 @@ DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
 TIMING_LOGGING_ENABLED = None
 FIRST_MENU_ITEM_REPORTED = False
+CHARDET_MODULE = None
+CHARDET_LOAD_ATTEMPTED = False
+CHARSET_NORMALIZER_FROM_BYTES = None
+CHARSET_NORMALIZER_LOAD_ATTEMPTED = False
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
   'likely': 1,
@@ -1179,19 +1173,46 @@ def _copy_subtitle_to_temp(source_path):
     raise RuntimeError(__language__(33043))
   return temp_source
 
+def _get_chardet_module():
+  global CHARDET_MODULE
+  global CHARDET_LOAD_ATTEMPTED
+  if not CHARDET_LOAD_ATTEMPTED:
+    CHARDET_LOAD_ATTEMPTED = True
+    try:
+      import chardet as chardet_module
+      CHARDET_MODULE = chardet_module
+    except Exception:
+      CHARDET_MODULE = None
+  return CHARDET_MODULE
+
+def _get_charset_normalizer_from_bytes():
+  global CHARSET_NORMALIZER_FROM_BYTES
+  global CHARSET_NORMALIZER_LOAD_ATTEMPTED
+  if not CHARSET_NORMALIZER_LOAD_ATTEMPTED:
+    CHARSET_NORMALIZER_LOAD_ATTEMPTED = True
+    try:
+      from resources.lib.charset_normalizer.api import from_bytes as charset_normalizer_from_bytes
+      CHARSET_NORMALIZER_FROM_BYTES = charset_normalizer_from_bytes
+    except Exception:
+      CHARSET_NORMALIZER_FROM_BYTES = None
+  return CHARSET_NORMALIZER_FROM_BYTES
+
 def _detect_text_encoding(local_subtitle_path):
   try:
     with open(local_subtitle_path, 'rb') as subtitle_file:
       raw_data = subtitle_file.read()
     encoding = None
-    if chardet is not None:
-      detected = chardet.detect(raw_data)
+    chardet_module = _get_chardet_module()
+    if chardet_module is not None:
+      detected = chardet_module.detect(raw_data)
       encoding = detected.get('encoding')
-    elif from_bytes is not None:
-      results = from_bytes(raw_data)
-      best = results.best()
-      if best is not None:
-        encoding = best.encoding
+    else:
+      charset_normalizer_from_bytes = _get_charset_normalizer_from_bytes()
+      if charset_normalizer_from_bytes is not None:
+        results = charset_normalizer_from_bytes(raw_data)
+        best = results.best()
+        if best is not None:
+          encoding = best.encoding
     if encoding and encoding.lower() == 'gb2312':
       encoding = 'gbk'
     if encoding:

@@ -9,19 +9,12 @@ import codecs
 import uuid
 from json import loads, dumps
 
-try:
-    import chardet
-except Exception:
-    chardet = None
-
 translatePath = xbmcvfs.translatePath
 
 try:
     import pysubs2
 except Exception:
     from resources.lib import pysubs2
-
-from resources.lib.charset_normalizer.api import from_path
 
 __addon__ = xbmcaddon.Addon()
 __language__ = __addon__.getLocalizedString
@@ -31,6 +24,10 @@ __msg_box__ = xbmcgui.Dialog()
 
 LOG_DEBUG = getattr(xbmc, 'LOGDEBUG', 0)
 LOG_WARNING = getattr(xbmc, 'LOGWARNING', 2)
+CHARDET_MODULE = None
+CHARDET_LOAD_ATTEMPTED = False
+CHARSET_NORMALIZER_FROM_PATH = None
+CHARSET_NORMALIZER_LOAD_ATTEMPTED = False
 
 
 def _log(message, level=LOG_DEBUG):
@@ -38,6 +35,32 @@ def _log(message, level=LOG_DEBUG):
         xbmc.log('[%s] %s' % (__addon__.getAddonInfo('id'), message), level)
     except Exception:
         pass
+
+
+def _get_chardet_module():
+    global CHARDET_MODULE
+    global CHARDET_LOAD_ATTEMPTED
+    if not CHARDET_LOAD_ATTEMPTED:
+        CHARDET_LOAD_ATTEMPTED = True
+        try:
+            import chardet as chardet_module
+            CHARDET_MODULE = chardet_module
+        except Exception:
+            CHARDET_MODULE = None
+    return CHARDET_MODULE
+
+
+def _get_charset_normalizer_from_path():
+    global CHARSET_NORMALIZER_FROM_PATH
+    global CHARSET_NORMALIZER_LOAD_ATTEMPTED
+    if not CHARSET_NORMALIZER_LOAD_ATTEMPTED:
+        CHARSET_NORMALIZER_LOAD_ATTEMPTED = True
+        try:
+            from resources.lib.charset_normalizer.api import from_path as charset_normalizer_from_path
+            CHARSET_NORMALIZER_FROM_PATH = charset_normalizer_from_path
+        except Exception:
+            CHARSET_NORMALIZER_FROM_PATH = None
+    return CHARSET_NORMALIZER_FROM_PATH
 
 
 def _equal_text(t1, t2):
@@ -230,7 +253,10 @@ def _charset_detect(filename, bottom):
 
     if encoding == 'Auto Charset_normalizer':
         try:
-            results = from_path(filename)
+            charset_normalizer_from_path = _get_charset_normalizer_from_path()
+            if charset_normalizer_from_path is None:
+                raise RuntimeError('charset_normalizer is unavailable')
+            results = charset_normalizer_from_path(filename)
             result = results.best()
             encoding = result.encoding if (result is not None and result.encoding) else 'utf-8'
             if encoding == 'utf-8':
@@ -240,16 +266,20 @@ def _charset_detect(filename, bottom):
             _log('charset_normalizer detection failed (%s); fallback utf-8' % ex, LOG_WARNING)
 
     elif encoding == 'Auto Chardet':
-        if chardet is not None:
+        chardet_module = _get_chardet_module()
+        if chardet_module is not None:
             with open(filename, 'rb') as fi:
                 rawdata = fi.read()
-            detected = chardet.detect(rawdata)
+            detected = chardet_module.detect(rawdata)
             encoding = detected.get('encoding') or 'utf-8'
             if encoding.lower() == 'gb2312':  # Decoding may fail using GB2312
                 encoding = 'gbk'
         else:
             try:
-                results = from_path(filename)
+                charset_normalizer_from_path = _get_charset_normalizer_from_path()
+                if charset_normalizer_from_path is None:
+                    raise RuntimeError('charset_normalizer is unavailable')
+                results = charset_normalizer_from_path(filename)
                 result = results.best()
                 encoding = result.encoding if (result is not None and result.encoding) else 'utf-8'
                 if encoding == 'utf-8':
