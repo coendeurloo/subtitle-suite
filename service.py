@@ -1120,6 +1120,9 @@ def _is_smart_sync_enabled():
     return True
   return setting == 'true'
 
+def _is_smart_sync_frame_rate_correction_enabled():
+  return _get_bool_setting('smart_sync_frame_rate_correction', True)
+
 def _is_lucky_download_enabled():
   # Lucky download follows the main download toggle; always enabled by default.
   lucky_explicit = __addon__.getSetting('lucky_enable_download')
@@ -2120,7 +2123,24 @@ def _run_smart_sync_local(reference_path, target_path):
   try:
     reference_subs, reference_local = _load_subtitle_for_processing(reference_path)
     target_subs, target_local = _load_subtitle_for_processing(target_path)
-    return smartsync.sync_local(reference_subs, target_subs)
+    result = smartsync.sync_local(
+      reference_subs,
+      target_subs,
+      enable_frame_rate_correction=_is_smart_sync_frame_rate_correction_enabled()
+    )
+    _log_timing(
+      'smartsync_fps_detection',
+      time.monotonic() - (float(result.get('fps_detection_ms', 0)) / 1000.0),
+      'ratio=%s name=%s margin=%.4f applied=%s detection_ms=%s'
+      % (
+        result.get('fps_ratio', 1.0),
+        result.get('fps_ratio_name', '1.0'),
+        float(result.get('fps_margin', 0.0)),
+        result.get('fps_applied', False),
+        result.get('fps_detection_ms', 0),
+      )
+    )
+    return result
   finally:
     if reference_local:
       xbmcvfs.delete(reference_local)

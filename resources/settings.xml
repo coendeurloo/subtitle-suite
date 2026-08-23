@@ -71,6 +71,7 @@
         <setting type="lsep"/>
         <setting id="enable_smart_sync" type="bool" label="33081" default="true" subsetting="true"/>
         <setting id="smart_sync_mode" type="labelenum" label="33145" default="33147" subsetting="true" lvalues="33147|33146" enable="eq(-1,true)"/>
+        <setting id="smart_sync_frame_rate_correction" type="bool" label="33311" default="true" subsetting="true" enable="eq(-2,true)"/>
         <setting label="33082" type="text" enable="false"/>
         <setting type="lsep"/>
         <setting id="autoShft" type="bool" label="32520" default="true"/>

@@ -94,6 +94,10 @@ SmartSync works best when one subtitle is known to be in sync (usually English).
 - Manual mode lets you pick target + reference explicitly.
 - Lucky mode can apply SmartSync automatically after a trusted English reference is found.
 - Replace mode creates a backup before overwrite. Restore stages and parses the backup before atomically replacing the original, so a failed restore keeps the existing subtitle untouched.
+- SmartSync can correct common subtitle frame-rate conversions before aligning.
+  `Correct common subtitle frame-rate differences` is enabled by default and
+  can be disabled in settings when troubleshooting. The correction only runs
+  when a known ratio clearly beats the runner-up candidate.
 
 ## AI Translation
 

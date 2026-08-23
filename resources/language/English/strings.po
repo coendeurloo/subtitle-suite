@@ -270,6 +270,10 @@ msgctxt "#33310"
 msgid "Always check English reference timing in Lucky"
 msgstr ""
 
+msgctxt "#33311"
+msgid "Correct common subtitle frame-rate differences"
+msgstr ""
+
 msgctxt "#33073"
 msgid "AI timeout (seconds)"
 msgstr ""

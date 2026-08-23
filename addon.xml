@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.subtitlesuite"
        name="Subtitle Suite"
-       version="2.9.14"
+       version="2.9.15"
        provider-name="coendeurloo">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -21,6 +21,9 @@ The addon opens from the subtitle search screen and supports:
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
     <news>
+2.9.15 (unreleased)
+- SmartSync now detects and corrects common subtitle frame-rate differences
+
 2.9.14 (unreleased)
 - Single Lucky activates its subtitle directly; only Dual Lucky merges to ASS
 

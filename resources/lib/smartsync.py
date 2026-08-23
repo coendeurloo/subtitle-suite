@@ -2,6 +2,7 @@
 
 import copy
 import re
+import time
 from bisect import bisect_left
 
 LOW_CONFIDENCE_THRESHOLD = 0.70
@@ -23,6 +24,20 @@ LOCAL_WINDOW_SCAN_RANGE_MS = 30000
 LOCAL_SYNC_P90_LOW_CONFIDENCE_MS = 3000
 KNOT_JUMP_LOW_CONFIDENCE_MS = 45000
 KNOT_SPAN_LOW_CONFIDENCE_MS = 90000
+FPS_RATIO_MARGIN_THRESHOLD = 0.15
+FPS_DETECTION_SAMPLE_ITEMS = 96
+FPS_DETECTION_OFFSET_STEP_MS = 2000
+FRAME_RATE_RATIOS = (
+    ('1.0', 1.0),
+    ('25/23.976', 25.0 / 23.976),
+    ('23.976/25', 23.976 / 25.0),
+    ('25/24', 25.0 / 24.0),
+    ('24/25', 24.0 / 25.0),
+    ('24/23.976', 24.0 / 23.976),
+    ('23.976/24', 23.976 / 24.0),
+    ('30/29.97', 30.0 / 29.97),
+    ('29.97/30', 29.97 / 30.0),
+)
 
 
 def _as_text(value):
@@ -119,7 +134,9 @@ def _interval_overlap_score(reference_intervals, target_intervals, offset_ms):
     i = 0
     j = 0
     score = 0.0
-    while i < len(reference_intervals) and j < len(target_intervals):
+    reference_count = len(reference_intervals)
+    target_count = len(target_intervals)
+    while i < reference_count and j < target_count:
         reference_start, reference_end = reference_intervals[i]
         target_start = target_intervals[j][0] + offset_ms
         target_end = target_intervals[j][1] + offset_ms
@@ -143,9 +160,14 @@ def _interval_overlap_score(reference_intervals, target_intervals, offset_ms):
     return score
 
 
-def _scan_best_global_offset(reference_points, target_points):
+def _scan_best_global_offset(reference_points, target_points, coarse_step=None, fine_step=None, return_score=False):
     if not reference_points or not target_points:
-        return 0.0
+        return (0.0, 0.0) if return_score else 0.0
+
+    if coarse_step is None:
+        coarse_step = GLOBAL_SCAN_COARSE_STEP_MS
+    if fine_step is None:
+        fine_step = GLOBAL_SCAN_FINE_STEP_MS
 
     reference_intervals = [(item['start'], item['end']) for item in reference_points]
     target_intervals = [(item['start'], item['end']) for item in target_points]
@@ -159,18 +181,21 @@ def _scan_best_global_offset(reference_points, target_points):
         if score > best_score:
             best_score = score
             best_offset = offset
-        offset += GLOBAL_SCAN_COARSE_STEP_MS
+        offset += coarse_step
 
-    fine_start = best_offset - GLOBAL_SCAN_FINE_RANGE_MS
-    fine_end = best_offset + GLOBAL_SCAN_FINE_RANGE_MS
-    offset = fine_start
-    while offset <= fine_end:
-        score = _interval_overlap_score(reference_intervals, target_intervals, offset)
-        if score > best_score:
-            best_score = score
-            best_offset = offset
-        offset += GLOBAL_SCAN_FINE_STEP_MS
+    if fine_step and fine_step > 0:
+        fine_start = best_offset - GLOBAL_SCAN_FINE_RANGE_MS
+        fine_end = best_offset + GLOBAL_SCAN_FINE_RANGE_MS
+        offset = fine_start
+        while offset <= fine_end:
+            score = _interval_overlap_score(reference_intervals, target_intervals, offset)
+            if score > best_score:
+                best_score = score
+                best_offset = offset
+            offset += fine_step
 
+    if return_score:
+        return float(best_offset), float(best_score)
     return float(best_offset)
 
 
@@ -230,6 +255,87 @@ def _sample_points(points, max_items):
         seen[index] = True
         sampled.append(points[index])
     return sampled
+
+
+def _scale_points(points, factor):
+    scaled = []
+    for point in points:
+        item = dict(point)
+        item['start'] = int(round(float(point['start']) * factor))
+        item['end'] = max(item['start'] + 1, int(round(float(point['end']) * factor)))
+        scaled.append(item)
+    return scaled
+
+
+def _scale_subtitle_timings(subs, factor):
+    scaled = copy.deepcopy(subs)
+    for event in getattr(scaled, 'events', []):
+        start = int(round(float(getattr(event, 'start', 0)) * factor))
+        end = int(round(float(getattr(event, 'end', start + 1)) * factor))
+        event.start = max(0, start)
+        event.end = max(event.start + 1, end)
+    return scaled
+
+
+def detect_frame_rate_ratio(reference_subs, target_subs):
+    """Choose a safe known frame-rate ratio using sampled interval overlap.
+
+    ``ratio`` follows the historical conversion notation; the target timeline
+    is scaled by ``1 / ratio`` before evaluating its best global offset.
+    """
+    reference_points = _sample_points(_subtitle_points(reference_subs), FPS_DETECTION_SAMPLE_ITEMS)
+    target_points = _sample_points(_subtitle_points(target_subs), FPS_DETECTION_SAMPLE_ITEMS)
+    result = {
+        'ratio': 1.0,
+        'name': '1.0',
+        'offset_ms': 0,
+        'score': 0.0,
+        'runner_up_score': 0.0,
+        'margin': 0.0,
+        'applied': False,
+    }
+    if not reference_points or not target_points:
+        return result
+
+    candidates = []
+    for name, ratio in FRAME_RATE_RATIOS:
+        scaled_target = _scale_points(target_points, 1.0 / ratio)
+        offset, score = _scan_best_global_offset(
+            reference_points,
+            scaled_target,
+            coarse_step=FPS_DETECTION_OFFSET_STEP_MS,
+            fine_step=0,
+            return_score=True,
+        )
+        candidates.append({
+            'ratio': float(ratio),
+            'name': name,
+            'offset_ms': int(round(offset)),
+            'score': float(score),
+        })
+
+    # Prefer no correction for an exact tie, which makes doing nothing the
+    # safe default for ordinary in-sync or plain-offset subtitle pairs.
+    candidates.sort(key=lambda item: (-item['score'], 0 if item['ratio'] == 1.0 else 1, abs(item['ratio'] - 1.0)))
+    winner = candidates[0]
+    runner_up = candidates[1] if len(candidates) > 1 else {'score': 0.0}
+    margin = 0.0
+    if winner['score'] > 0:
+        margin = (winner['score'] - runner_up['score']) / winner['score']
+
+    result.update({
+        'ratio': winner['ratio'],
+        'name': winner['name'],
+        'offset_ms': winner['offset_ms'],
+        'score': winner['score'],
+        'runner_up_score': runner_up['score'],
+        'margin': round(margin, 4),
+        'applied': bool(winner['ratio'] != 1.0 and margin > FPS_RATIO_MARGIN_THRESHOLD),
+    })
+    if not result['applied']:
+        result['ratio'] = 1.0
+        result['name'] = '1.0'
+    return result
 
 
 def _nearest_reference_point(reference_starts, reference_start_lookup, value):
@@ -613,9 +719,22 @@ def assess_pair(reference_subs, target_subs):
     }
 
 
-def sync_local(reference_subs, target_subs):
+def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True):
+    detection_started_at = time.monotonic()
+    if enable_frame_rate_correction:
+        fps_detection = detect_frame_rate_ratio(reference_subs, target_subs)
+    else:
+        fps_detection = {
+            'ratio': 1.0, 'name': '1.0', 'offset_ms': 0, 'score': 0.0,
+            'runner_up_score': 0.0, 'margin': 0.0, 'applied': False,
+        }
+    fps_detection_ms = int(round((time.monotonic() - detection_started_at) * 1000.0))
+    working_target_subs = target_subs
+    if fps_detection['applied']:
+        working_target_subs = _scale_subtitle_timings(target_subs, 1.0 / fps_detection['ratio'])
+
     reference_points = _subtitle_points(reference_subs)
-    target_points = _subtitle_points(target_subs)
+    target_points = _subtitle_points(working_target_subs)
 
     global_offset = _estimate_global_offset(reference_points, target_points)
     opening_offset = _estimate_opening_index_offset(reference_points, target_points)
@@ -625,7 +744,7 @@ def sync_local(reference_subs, target_subs):
             global_offset = opening_offset['offset']
 
     knots = _build_offset_knots(reference_points, target_points, global_offset)
-    synced_subs = _apply_knots(target_subs, knots)
+    synced_subs = _apply_knots(working_target_subs, knots)
     synced_points = _subtitle_points(synced_subs)
     metrics = _evaluate_alignment(reference_points, synced_points)
     knot_quality = _knot_instability(knots)
@@ -641,6 +760,11 @@ def sync_local(reference_subs, target_subs):
         'knots': [{'time': int(round(k['time'])), 'offset': int(round(k['offset'])), 'count': int(k['count'])} for k in knots],
         'knot_max_jump_ms': knot_quality['max_jump_ms'],
         'knot_span_ms': knot_quality['span_ms'],
+        'fps_ratio': fps_detection['ratio'],
+        'fps_ratio_name': fps_detection['name'],
+        'fps_margin': fps_detection['margin'],
+        'fps_applied': fps_detection['applied'],
+        'fps_detection_ms': fps_detection_ms,
         'synced_subs': synced_subs,
         'low_confidence': low_confidence,
     })

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.9.15 — Unreleased
+
+- Added conservative, sampled frame-rate ratio detection before local SmartSync alignment, with an opt-out setting enabled by default.
+- Added frame-rate decision/timing metrics and pure synthetic SmartSync regression tests, including irregular cue rhythm and ±500 ms jitter.
+- Reduced local overlap-loop overhead by caching interval lengths; see `docs/SMARTSYNC-PROFILE.md` for the measured development-machine profile.
+
 ## 2.9.14 — Unreleased
 
 - Single Lucky now activates its acquired subtitle directly; only Dual Lucky uses the existing ASS merge path.
