@@ -41,6 +41,22 @@ class TranslationValidationTests(unittest.TestCase):
 
         self.assertEqual(translated, validate_translation_block(source, translated))
 
+    def test_short_name_and_number_block_skips_echo_check(self):
+        source = ['John!', '42', 'No!']
+        self.assertEqual(source, validate_translation_block(source, list(source)))
+
+    def test_cross_script_echo_is_rejected_by_script_comparison(self):
+        source = ['Hello there', 'How are you?']
+        with self.assertRaises(TranslationValidationError) as error:
+            validate_translation_block(source, list(source), 'en', 'ru')
+
+        self.assertIn('retained the source script', str(error.exception))
+
+    def test_cross_script_translation_is_not_compared_as_identical_text(self):
+        source = ['Hello there', 'How are you?']
+        translated = ['Привет там', 'Как дела?']
+        self.assertEqual(translated, validate_translation_block(source, translated, 'en', 'ru'))
+
     def test_source_echo_is_retried_once_before_a_valid_response_is_applied(self):
         source = ['Hello there', 'How are you?']
         responses = [list(source), ['Hallo daar', 'Hoe gaat het?']]

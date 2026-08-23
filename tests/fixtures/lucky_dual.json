@@ -1,0 +1,13 @@
+{
+  "target_languages": ["nl", "ru"],
+  "expected_steps": [
+    "local_match",
+    "trusted_download",
+    "english_reference",
+    "sync_preview",
+    "smartsync",
+    "ai_translation",
+    "risky_candidate_prompt",
+    "finalize"
+  ]
+}

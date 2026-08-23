@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.9.12 — Unreleased
+
+### Intentional Lucky Single behaviour changes
+
+- Single Lucky now uses the target-slot auto-match path used by Dual Lucky for local subtitle discovery.
+- Single Lucky now checks an available English reference before SmartSync, like Dual Lucky. `lucky_strict_english_preview` defaults to enabled and can disable this extra preview.
+
+### Reliability and diagnostics
+
+- The AI source-echo guard skips blocks with fewer than five meaningful words and uses script comparison for cross-script translations; every guard hit logs its block number.
+- Added a CoreELEC on-device timing and regression checklist.
+
 ## 2.9.11 — Unreleased
 
 - Moved provider searches and per-block OpenAI translation requests to cancellable worker jobs; enabled provider searches now start in parallel.

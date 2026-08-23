@@ -117,7 +117,7 @@ Each playback action also reuses one video context, avoiding repeated video hash
 
 Provider searches now run in parallel worker threads. The progress dialog stays cancellable; cancellation discards late results and prevents a cancelled translation from replacing a subtitle. OpenSubtitles is capped at two attempts per request.
 
-The last download language is remembered and preselected in the language picker. The last main-menu action is retained as a list-item property for compatible skins; Kodi's standard subtitle-search directory API does not provide a safe portable way to force focus to a menu item without changing the menu.
+The last download language is remembered and preselected in the language picker. The last main-menu action is retained as the `subtitle_suite_last_used=true` list-item property for compatible skins. It currently marks the matching item for skins that choose to read it; Kodi's standard subtitle-search directory API does not provide a safe portable way to force focus to that item without changing the menu.
 
 ## File/Backup Policy
 

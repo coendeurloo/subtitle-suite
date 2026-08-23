@@ -66,7 +66,7 @@ from resources.lib.languages import (
 from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
 from resources.lib.background_jobs import CancellableJob, JobCancelled
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
-from resources.lib.translation_validation import translate_block_with_one_retry
+from resources.lib.translation_validation import TranslationValidationError, translate_block_with_one_retry
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
@@ -1143,6 +1143,9 @@ def _is_lucky_continue_on_partial():
 
 def _is_lucky_prompt_english_test_enabled():
   return _get_bool_setting('lucky_prompt_english_test', True)
+
+def _is_lucky_strict_english_preview_enabled():
+  return _get_bool_setting('lucky_strict_english_preview', True)
 
 def _get_smart_sync_mode():
   setting = __addon__.getSetting('smart_sync_mode')
@@ -2643,6 +2646,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
       def _record_translation_block_failure(attempt, exc):
         block_attempts[0] = attempt
+        if isinstance(exc, TranslationValidationError) and getattr(exc, 'source_echo_check_fired', False):
+          _log('ai translation source-echo check fired: block=%d attempt=%d' % (block_index, attempt), LOG_WARNING)
         _log(
           'ai translation block %d attempt %d/2 failed: %s'
           % (block_index, attempt, exc),
@@ -2654,6 +2659,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           request_lines,
           _request_translation_block,
           _record_translation_block_failure,
+          source_language_code=source_language_code,
+          target_language_code=target_language_code,
         )
       except Exception:
         message = __language__(33309) % (block_index)
@@ -4926,7 +4933,7 @@ def _run_lucky_smartsync_to_reference(reference_path, target_path, force_apply=F
     chosen_result = local_result
     if local_result.get('low_confidence'):
       _log(
-        'lucky smart sync local low confidence: ref=%s target=%s confidence=%.3f median=%s p90=%s knot_span=%s' % (
+        'lucky smart sync local low confidence: ref=%s target=%s confidence=%.3f median=%s p90=%s knot_span_ms=%s' % (
           reference_path,
           target_path,
           local_result.get('confidence', 0.0),
@@ -5268,7 +5275,7 @@ def _find_subtitle_matches(video_dir, video_basename, language_code, strict):
 
   return matches
 
-def _auto_match_subtitles(video_dir, video_basename):
+def _auto_match_subtitles(video_dir, video_basename, target_slots=None):
   result = {
       'mode': 'disabled',
       'subtitle1': None,
@@ -5282,6 +5289,25 @@ def _auto_match_subtitles(video_dir, video_basename):
 
   language1 = _parse_language_code('preferred_language_1')
   language2 = _parse_language_code('preferred_language_2')
+  if target_slots is not None:
+    strict = _get_match_strictness() == 'strict'
+    result['matched_slots'] = {}
+    for index, target_slot in enumerate(target_slots):
+      language_code = _canonicalize_language_code(target_slot.get('code', ''))
+      if not language_code:
+        continue
+      matches = _find_subtitle_matches(video_dir, video_basename, language_code, strict)
+      if len(matches) != 1:
+        continue
+      result['matched_slots'][target_slot.get('slot', language_code)] = matches[0]
+      if index == 0:
+        result['subtitle1'] = matches[0]
+      elif index == 1:
+        result['subtitle2'] = matches[0]
+    result['mode'] = 'full' if len(result['matched_slots']) == len(target_slots) else 'partial'
+    _log('auto-match target slots: strict=%s matched=%d/%d' % (strict, len(result['matched_slots']), len(target_slots)), LOG_DEBUG)
+    return result
+
   if not video_dir or not video_basename or not language1 or not language2 or language1 == language2:
     _log('auto-match disabled: video_dir=%s base=%s lang1=%s lang2=%s' % (video_dir, video_basename, language1, language2), LOG_DEBUG)
     return result
@@ -6271,7 +6297,8 @@ def _run_i_feel_lucky_single_flow():
   try:
     _step(4, __language__(33236), __language__(33251))
 
-    exact_local = _pick_best_exact_local_language_match(video_dir, video_basename, slot['code'])
+    auto_match = _auto_match_subtitles(video_dir, video_basename, target_slots=[slot])
+    exact_local = (auto_match.get('matched_slots') or {}).get(slot.get('slot'))
     if exact_local:
       slot['path'] = exact_local
       slot['origin'] = 'local_exact'
@@ -6331,7 +6358,7 @@ def _run_i_feel_lucky_single_flow():
 
     can_use_reference_for_sync = english_reference_tier in ['exact', 'likely']
     should_test_english_reference = False
-    if english_reference_path and _is_lucky_prompt_english_test_enabled() and (not slot.get('path') or _as_text(slot.get('origin', '')).lower() == 'download_unknown'):
+    if english_reference_path and _is_lucky_prompt_english_test_enabled() and _is_lucky_strict_english_preview_enabled():
       try:
         prompt_message = '%s[CR][CR]%s' % (__language__(33249), __language__(33250))
         should_test_english_reference = __msg_box__.yesno(__language__(33230), prompt_message)
@@ -6787,7 +6814,7 @@ def _run_i_feel_lucky_flow():
 
     can_use_reference_for_sync = english_reference_tier in ['exact', 'likely']
     should_test_english_reference = False
-    if english_reference_path and _is_lucky_prompt_english_test_enabled():
+    if english_reference_path and _is_lucky_prompt_english_test_enabled() and _is_lucky_strict_english_preview_enabled():
       try:
         prompt_message = '%s[CR][CR]%s' % (__language__(33249), __language__(33250))
         should_test_english_reference = __msg_box__.yesno(__language__(33230), prompt_message)

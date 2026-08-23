@@ -46,6 +46,7 @@
         <setting id="lucky_allow_english_likely" type="bool" label="33233" default="true" subsetting="true"/>
         <setting id="lucky_enable_ai_translate" type="bool" label="33234" default="true" subsetting="true"/>
         <setting id="lucky_prompt_english_test" type="bool" label="33257" default="true" subsetting="true"/>
+        <setting id="lucky_strict_english_preview" type="bool" label="33310" default="true" subsetting="true"/>
         <setting id="lucky_continue_on_partial" type="bool" label="33235" default="true" subsetting="true" visible="false"/>
     </category>
 
