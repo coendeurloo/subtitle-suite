@@ -74,6 +74,8 @@ CHARDET_MODULE = None
 CHARDET_LOAD_ATTEMPTED = False
 CHARSET_NORMALIZER_FROM_BYTES = None
 CHARSET_NORMALIZER_LOAD_ATTEMPTED = False
+ACTION_VIDEO_CONTEXT = None
+ENCODING_SAMPLE_BYTES = 65536
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
   'likely': 1,
@@ -593,17 +595,85 @@ def _get_match_strictness():
 def _is_second_subtitle_required():
   return __addon__.getSetting('second_subtitle_required') == 'true'
 
-def _current_video_context():
+class VideoContext(object):
+  """Action-scoped playback data and inexpensive derived caches."""
+
+  def __init__(self, video_path, video_dir, video_basename):
+    self.video_path = video_path
+    self.video_dir = video_dir
+    self.video_basename = video_basename
+    self.directory_listings = {}
+    self.subtitle_files = {}
+    self.file_hash = None
+    self.file_size = None
+    self.metadata = None
+    self.filename_language_codes = {}
+    self.subtitle_samples = {}
+    self.provider_search_results = {}
+
+  def list_srt_files(self, folder_path, include_generated=True):
+    if not folder_path:
+      return []
+    if folder_path not in self.directory_listings:
+      try:
+        self.directory_listings[folder_path] = xbmcvfs.listdir(folder_path)[1]
+      except Exception:
+        self.directory_listings[folder_path] = []
+    cache_key = (folder_path, bool(include_generated))
+    if cache_key not in self.subtitle_files:
+      candidates = []
+      for file_name in self.directory_listings[folder_path]:
+        if not file_name.lower().endswith('.srt'):
+          continue
+        full_path = os.path.join(folder_path, file_name)
+        if not include_generated and _is_generated_subtitle_name(full_path):
+          continue
+        candidates.append(full_path)
+      candidates.sort(key=lambda item: os.path.basename(item).lower())
+      self.subtitle_files[cache_key] = candidates
+    return list(self.subtitle_files[cache_key])
+
+  def list_directory_files(self, folder_path):
+    if not folder_path:
+      return []
+    if folder_path not in self.directory_listings:
+      try:
+        self.directory_listings[folder_path] = xbmcvfs.listdir(folder_path)[1]
+      except Exception:
+        self.directory_listings[folder_path] = []
+    return list(self.directory_listings[folder_path])
+
+  def read_subtitle_sample(self, path, max_read):
+    cache_key = (path, int(max_read))
+    if cache_key not in self.subtitle_samples:
+      raw = None
+      file_handle = None
+      try:
+        file_handle = xbmcvfs.File(path)
+        raw = file_handle.read(max_read)
+      except Exception:
+        raw = None
+      finally:
+        try:
+          if file_handle:
+            file_handle.close()
+        except Exception:
+          pass
+      self.subtitle_samples[cache_key] = raw
+    return self.subtitle_samples[cache_key]
+
+
+def _build_action_video_context():
   try:
     video_file = xbmc.Player().getPlayingFile()
   except Exception:
     video_file = ''
 
   if not video_file:
-    return '', ''
+    return VideoContext('', '', '')
 
   if _is_disallowed_browse_path(video_file):
-    return '', ''
+    return VideoContext('', '', '')
 
   video_name = os.path.splitext(os.path.basename(video_file))[0]
   try:
@@ -621,32 +691,41 @@ def _current_video_context():
       pass
     if _is_usable_browse_dir(stream_work_dir):
       _log('stream playback context: using local subtitle work dir=%s' % (stream_work_dir), LOG_INFO)
-      return stream_work_dir, video_name
-    return '', ''
+      return VideoContext(video_file, stream_work_dir, video_name)
+    return VideoContext(video_file, '', '')
 
   video_dir = os.path.dirname(video_file)
   if not _is_usable_browse_dir(video_dir):
-    return '', ''
+    return VideoContext(video_file, '', '')
 
-  return video_dir, video_name
+  return VideoContext(video_file, video_dir, video_name)
+
+
+def _get_action_video_context():
+  global ACTION_VIDEO_CONTEXT
+  if ACTION_VIDEO_CONTEXT is None:
+    ACTION_VIDEO_CONTEXT = _build_action_video_context()
+  return ACTION_VIDEO_CONTEXT
+
+
+def _current_video_context():
+  context = _get_action_video_context()
+  return context.video_dir, context.video_basename
 
 def _current_video_file_path():
-  try:
-    video_file = xbmc.Player().getPlayingFile()
-  except Exception:
-    video_file = ''
-
-  if not video_file:
-    return ''
-  if _is_disallowed_browse_path(video_file):
-    return ''
-  return video_file
+  return _get_action_video_context().video_path
 
 def _compute_file_hash_and_size(file_path):
+  action_context = _get_action_video_context()
+  if file_path and file_path == action_context.video_path and action_context.file_hash is not None:
+    return action_context.file_hash, action_context.file_size
   if not file_path:
     return '', 0
   if file_path.startswith('plugin://'):
-    return '', 0
+    result = ('', 0)
+    if file_path == action_context.video_path:
+      action_context.file_hash, action_context.file_size = result
+    return result
   chunk_size = 65536
 
   try:
@@ -654,9 +733,15 @@ def _compute_file_hash_and_size(file_path):
     try:
       file_size = int(vfs_file.size())
       if file_size <= 0:
-        return '', 0
+        result = ('', 0)
+        if file_path == action_context.video_path:
+          action_context.file_hash, action_context.file_size = result
+        return result
       if file_size < (chunk_size * 2):
-        return '', file_size
+        result = ('', file_size)
+        if file_path == action_context.video_path:
+          action_context.file_hash, action_context.file_size = result
+        return result
 
       file_hash = file_size
       for _ in range(int(chunk_size / 8)):
@@ -673,7 +758,10 @@ def _compute_file_hash_and_size(file_path):
         file_hash += struct.unpack('<Q', block)[0]
 
       file_hash &= 0xFFFFFFFFFFFFFFFF
-      return ('%016x' % (file_hash)), file_size
+      result = ('%016x' % (file_hash)), file_size
+      if file_path == action_context.video_path:
+        action_context.file_hash, action_context.file_size = result
+      return result
     finally:
       try:
         vfs_file.close()
@@ -685,12 +773,21 @@ def _compute_file_hash_and_size(file_path):
   try:
     file_size = int(os.path.getsize(file_path))
   except Exception:
-    return '', 0
+    result = ('', 0)
+    if file_path == action_context.video_path:
+      action_context.file_hash, action_context.file_size = result
+    return result
 
   if file_size <= 0:
-    return '', 0
+    result = ('', 0)
+    if file_path == action_context.video_path:
+      action_context.file_hash, action_context.file_size = result
+    return result
   if file_size < (chunk_size * 2):
-    return '', file_size
+    result = ('', file_size)
+    if file_path == action_context.video_path:
+      action_context.file_hash, action_context.file_size = result
+    return result
 
   try:
     file_hash = file_size
@@ -709,9 +806,15 @@ def _compute_file_hash_and_size(file_path):
         file_hash += struct.unpack('<Q', block)[0]
 
     file_hash &= 0xFFFFFFFFFFFFFFFF
-    return ('%016x' % (file_hash)), file_size
+    result = ('%016x' % (file_hash)), file_size
+    if file_path == action_context.video_path:
+      action_context.file_hash, action_context.file_size = result
+    return result
   except Exception:
-    return '', file_size
+    result = ('', file_size)
+    if file_path == action_context.video_path:
+      action_context.file_hash, action_context.file_size = result
+    return result
 
 def _normalize_imdb_id(value):
   imdb_id = _as_text(value).strip()
@@ -732,6 +835,9 @@ def _normalize_imdb_id(value):
   return ''
 
 def _current_video_metadata():
+  action_context = _get_action_video_context()
+  if action_context.metadata is not None:
+    return dict(action_context.metadata)
   metadata = {
     'imdb_id': '',
     'title': '',
@@ -741,7 +847,8 @@ def _current_video_metadata():
   player = xbmc.Player()
   try:
     if not player.isPlayingVideo():
-      return metadata
+      action_context.metadata = metadata
+      return dict(metadata)
   except Exception:
     pass
 
@@ -780,7 +887,8 @@ def _current_video_metadata():
     except Exception:
       pass
 
-  return metadata
+  action_context.metadata = metadata
+  return dict(metadata)
 
 def _resolve_start_dir(video_dir):
   last_used = __addon__.getSetting('last_used_subtitle_dir')
@@ -1199,8 +1307,9 @@ def _get_charset_normalizer_from_bytes():
 
 def _detect_text_encoding(local_subtitle_path):
   try:
-    with open(local_subtitle_path, 'rb') as subtitle_file:
-      raw_data = subtitle_file.read()
+    raw_data = _get_action_video_context().read_subtitle_sample(local_subtitle_path, ENCODING_SAMPLE_BYTES)
+    if not raw_data:
+      raise RuntimeError('subtitle encoding sample is empty')
     encoding = None
     chardet_module = _get_chardet_module()
     if chardet_module is not None:
@@ -1256,25 +1365,7 @@ def _guess_language_code_from_path(path):
   return 'auto'
 
 def _list_srt_files(folder_path, include_generated=True):
-  if not folder_path:
-    return []
-
-  try:
-    file_names = xbmcvfs.listdir(folder_path)[1]
-  except Exception:
-    return []
-
-  candidates = []
-  for file_name in file_names:
-    if not file_name.lower().endswith('.srt'):
-      continue
-    full_path = os.path.join(folder_path, file_name)
-    if not include_generated and _is_generated_subtitle_name(full_path):
-      continue
-    candidates.append(full_path)
-
-  candidates.sort(key=lambda item: os.path.basename(item).lower())
-  return candidates
+  return _get_action_video_context().list_srt_files(folder_path, include_generated)
 
 def _build_compact_display_name(filename, max_length=72, tail_length=28):
   name = _as_text(filename)
@@ -1291,6 +1382,9 @@ def _build_compact_display_name(filename, max_length=72, tail_length=28):
   return '%s...%s' % (name[:head_length], name[-tail_length:])
 
 def _detect_language_from_filename(path):
+  action_context = _get_action_video_context()
+  if path in action_context.filename_language_codes:
+    return action_context.filename_language_codes[path]
   filename = os.path.basename(path)
   base = os.path.splitext(filename)[0].lower()
 
@@ -1318,26 +1412,19 @@ def _detect_language_from_filename(path):
       continue
     seen[normalized] = True
     if normalized in preferred_codes:
+      action_context.filename_language_codes[path] = normalized
       return normalized
     if normalized in KNOWN_SUBTITLE_LANGUAGE_CODES:
+      action_context.filename_language_codes[path] = normalized
       return normalized
+  action_context.filename_language_codes[path] = ''
   return ''
 
 def _detect_language_from_content(path):
   max_read = 12288
-  raw = None
-  file_handle = None
-  try:
-    file_handle = xbmcvfs.File(path)
-    raw = file_handle.read(max_read)
-  except Exception:
-    raw = None
-  finally:
-    try:
-      if file_handle:
-        file_handle.close()
-    except Exception:
-      pass
+  raw = _get_action_video_context().read_subtitle_sample(path, ENCODING_SAMPLE_BYTES)
+  if raw:
+    raw = raw[:max_read]
 
   text = _as_text(raw).lower()
   if not text:
@@ -1605,10 +1692,7 @@ def _cleanup_generated_movie_sidecars(video_dir, video_basename):
     ('%s..ass' % (safe_video_basename)).lower(),
   ])
 
-  try:
-    file_names = xbmcvfs.listdir(video_dir)[1]
-  except Exception:
-    return
+  file_names = _get_action_video_context().list_directory_files(video_dir)
 
   for file_name in file_names:
     if file_name.lower() not in candidate_names:
@@ -2856,6 +2940,7 @@ def _build_download_context(video_dir, video_basename):
     'title': metadata.get('title', ''),
     'tvshow_title': metadata.get('tvshow_title', ''),
     'file_hash': file_hash,
+    'video_hash': file_hash,
     'file_size': file_size,
   }
 
@@ -3885,7 +3970,15 @@ def _search_download_results(context, language_code):
     provider_started_at = time.monotonic()
     provider_status = 'ok'
     try:
-      results = provider.search(context, language_code, max_results)
+      provider_key = _as_text(getattr(provider, 'name', 'provider')).lower()
+      cache_key = (provider_key, _as_text(context.get('video_hash', context.get('file_hash', ''))), _as_text(language_code).lower())
+      action_context = _get_action_video_context()
+      if cache_key in action_context.provider_search_results:
+        results = action_context.provider_search_results[cache_key]
+        provider_status = 'cache_hit'
+      else:
+        results = provider.search(context, language_code, max_results)
+        action_context.provider_search_results[cache_key] = results
       _log(
         'download provider results (%s): %d' % (
           _as_text(getattr(provider, 'display_name', provider.name)),
@@ -4965,10 +5058,7 @@ def _find_subtitle_matches(video_dir, video_basename, language_code, strict):
   if not video_dir or not video_basename or not language_code:
     return []
 
-  try:
-    files = xbmcvfs.listdir(video_dir)[1]
-  except Exception:
-    return []
+  files = _get_action_video_context().list_directory_files(video_dir)
 
   matches = []
   seen = {}
