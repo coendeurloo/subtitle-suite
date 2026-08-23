@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.9.8 — Unreleased
+
+- Added an opt-in `Log timings` debug setting for menu, full-action, provider, SmartSync, and AI translation-block timings.
+- Deferred loading `chardet` and `charset_normalizer` until subtitle encoding detection is actually needed.
+
 ## 2.9.7 — Unreleased
 
 - Restoring a subtitle backup now stages and parses the replacement before an atomic swap, so a failed restore leaves the original subtitle untouched.

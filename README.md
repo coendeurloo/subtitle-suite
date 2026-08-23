@@ -88,6 +88,10 @@ AI translation is optional and manual key-based.
 - SmartSync and timing controls.
 - Dual subtitle layout and style controls.
 
+## Performance Diagnostics
+
+In `Addon Settings...` → `Debug`, enable `Log timings` only while measuring. The Kodi log then records elapsed milliseconds for the first menu item, menu build, the complete action, each subtitle-provider query, each SmartSync run, and each AI translation block. Disable it afterwards to keep normal logs quiet.
+
 ## File/Backup Policy
 
 - Final selectable subtitle files stay in the video folder.
