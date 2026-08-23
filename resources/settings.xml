@@ -103,4 +103,9 @@
         <setting id="top_outline" type="slider" label="32524" default="1" subsetting="true" range="0,1,5" option="int"/>
         <setting id="top_verticalmargin" type="slider" label="32518" default="10" range="-100,1,100" option="int"/>
     </category>
+
+    <category label="33306">
+        <setting id="log_timings" type="bool" label="33307" default="false" subsetting="true"/>
+        <setting label="33308" type="text" enable="false"/>
+    </category>
 </settings>

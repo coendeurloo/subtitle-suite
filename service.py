@@ -7,6 +7,7 @@ import json
 import difflib
 import struct
 import time
+INTERPRETER_STARTED_AT = time.monotonic()
 import zipfile
 import xbmc
 import xbmcaddon
@@ -77,6 +78,8 @@ from resources.lib.translation_validation import translate_block_with_one_retry
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
+TIMING_LOGGING_ENABLED = None
+FIRST_MENU_ITEM_REPORTED = False
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
   'likely': 1,
@@ -268,20 +271,28 @@ except Exception:
   window = ''
 
 def AddItem(name, url):
+  global FIRST_MENU_ITEM_REPORTED
   listitem = xbmcgui.ListItem(label="", label2=name)
   listitem.setProperty("sync", "false")
   listitem.setProperty("hearing_imp", "false")
   xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=listitem, isFolder=False)
+  if not FIRST_MENU_ITEM_REPORTED:
+    FIRST_MENU_ITEM_REPORTED = True
+    _log_timing('interpreter_start_to_first_menu_item', INTERPRETER_STARTED_AT)
 
 def Search():
-  AddItem(__language__(33162), "plugin://%s/?action=downloadmanual" % (__scriptid__))
-  AddItem(__language__(33274), "plugin://%s/?action=ifeelluckysingle" % (__scriptid__))
-  AddItem(__language__(33275), "plugin://%s/?action=ifeelluckydual" % (__scriptid__))
-  AddItem(__language__(33004), "plugin://%s/?action=browsedual" % (__scriptid__))
-  AddItem(__language__(33120), "plugin://%s/?action=smartsyncmanual" % (__scriptid__))
-  AddItem(__language__(33121), "plugin://%s/?action=translatemanual" % (__scriptid__))
-  AddItem(__language__(33150), "plugin://%s/?action=restorebackup" % (__scriptid__))
-  AddItem(__language__(33008), "plugin://%s/?action=settings" % (__scriptid__))
+  menu_started_at = time.monotonic()
+  try:
+    AddItem(__language__(33162), "plugin://%s/?action=downloadmanual" % (__scriptid__))
+    AddItem(__language__(33274), "plugin://%s/?action=ifeelluckysingle" % (__scriptid__))
+    AddItem(__language__(33275), "plugin://%s/?action=ifeelluckydual" % (__scriptid__))
+    AddItem(__language__(33004), "plugin://%s/?action=browsedual" % (__scriptid__))
+    AddItem(__language__(33120), "plugin://%s/?action=smartsyncmanual" % (__scriptid__))
+    AddItem(__language__(33121), "plugin://%s/?action=translatemanual" % (__scriptid__))
+    AddItem(__language__(33150), "plugin://%s/?action=restorebackup" % (__scriptid__))
+    AddItem(__language__(33008), "plugin://%s/?action=settings" % (__scriptid__))
+  finally:
+    _log_timing('menu_build', menu_started_at)
 
 def get_params(string=""):
   """Parse the Kodi plugin URL query string into a flat key→value dict."""
@@ -438,6 +449,22 @@ def _log(message, level=LOG_INFO):
     xbmc.log('[%s] %s' % (__scriptid__, message), level)
   except Exception:
     pass
+
+def _is_timing_logging_enabled():
+  global TIMING_LOGGING_ENABLED
+  if TIMING_LOGGING_ENABLED is None:
+    try:
+      TIMING_LOGGING_ENABLED = __addon__.getSetting('log_timings') == 'true'
+    except Exception:
+      TIMING_LOGGING_ENABLED = False
+  return TIMING_LOGGING_ENABLED
+
+def _log_timing(event, started_at, details=''):
+  if not _is_timing_logging_enabled():
+    return
+  elapsed_ms = (time.monotonic() - started_at) * 1000.0
+  suffix = (' %s' % (details)) if details else ''
+  _log('timing event=%s elapsed_ms=%.1f%s' % (event, elapsed_ms, suffix), LOG_DEBUG)
 
 def _close_subtitle_overlay_dialogs():
   # Close subtitle/search/settings overlays so feedback appears on top of video.
@@ -2031,6 +2058,13 @@ def _search_better_subtitle_for_target(target_path, video_dir='', video_basename
   return _run_download_for_language(video_dir, video_basename, language_code, language_label)
 
 def _run_smart_sync_pipeline(reference_path, target_path, allow_ai_fallback=True, video_dir='', video_basename=''):
+  smart_sync_started_at = time.monotonic()
+  try:
+    return _run_smart_sync_pipeline_impl(reference_path, target_path, allow_ai_fallback, video_dir, video_basename)
+  finally:
+    _log_timing('smartsync_run', smart_sync_started_at)
+
+def _run_smart_sync_pipeline_impl(reference_path, target_path, allow_ai_fallback=True, video_dir='', video_basename=''):
   result = {
     'applied': False,
     'play_path': target_path,
@@ -2444,6 +2478,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
         request_lines.append(_as_text(item.text))
 
       block_index = (index // batch_size) + 1
+      block_started_at = time.monotonic()
+      block_attempts = [1]
       def _request_translation_block():
         return _openai_translate_lines(
           request_lines,
@@ -2454,21 +2490,31 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           timeout_seconds
         )
 
+      def _record_translation_block_failure(attempt, exc):
+        block_attempts[0] = attempt
+        _log(
+          'ai translation block %d attempt %d/2 failed: %s'
+          % (block_index, attempt, exc),
+          LOG_WARNING
+        )
+
       try:
         translated_lines = translate_block_with_one_retry(
           request_lines,
           _request_translation_block,
-          lambda attempt, exc: _log(
-            'ai translation block %d attempt %d/2 failed: %s'
-            % (block_index, attempt, exc),
-            LOG_WARNING
-          ),
+          _record_translation_block_failure,
         )
       except Exception:
         message = __language__(33309) % (block_index)
         _notify(message, NOTIFY_ERROR)
         _log('ai translation failed permanently at block %d' % (block_index), LOG_ERROR)
         raise RuntimeError(message)
+      finally:
+        _log_timing(
+          'translation_block',
+          block_started_at,
+          'block=%d attempts=%d' % (block_index, block_attempts[0]),
+        )
 
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
@@ -3815,6 +3861,8 @@ def _search_download_results(context, language_code):
   last_request_message = ''
 
   for provider in providers:
+    provider_started_at = time.monotonic()
+    provider_status = 'ok'
     try:
       results = provider.search(context, language_code, max_results)
       _log(
@@ -3827,11 +3875,13 @@ def _search_download_results(context, language_code):
       for item in results:
         aggregated.append(item)
     except ProviderAuthError as exc:
+      provider_status = 'auth_error'
       auth_failures += 1
       last_auth_message = _format_download_provider_user_message(provider, exc, auth_error=True)
       _log('download provider auth failed (%s): %s' % (provider.name, exc), LOG_WARNING)
       _notify_download_provider_warning_once(provider.name, last_auth_message)
     except ProviderRequestError as exc:
+      provider_status = 'request_error'
       request_failures += 1
       last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
       _log('download provider request failed (%s): %s' % (provider.name, exc), LOG_WARNING)
@@ -3841,9 +3891,16 @@ def _search_download_results(context, language_code):
         if 'timed out' in exc_text or 'timeout' in exc_text or 'network error' in exc_text:
           _disable_download_provider_for_session(provider.name)
     except Exception as exc:
+      provider_status = 'unexpected_error'
       request_failures += 1
       last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
       _log('download provider unexpected failure (%s): %s' % (provider.name, exc), LOG_WARNING)
+    finally:
+      _log_timing(
+        'provider_query',
+        provider_started_at,
+        'provider=%s language=%s status=%s' % (provider.name, language_code, provider_status),
+      )
 
   if len(aggregated) == 0:
     if auth_failures > 0 and auth_failures == len(providers):
@@ -6848,6 +6905,7 @@ def _run_dual_subtitle_flow():
   )
 
 action = params.get('action', 'search')
+ACTION_STARTED_AT = time.monotonic()
 
 if action == 'manualsearch':
   Search()
@@ -6894,4 +6952,5 @@ elif action == 'settings':
 else:
   Search()
 
+_log_timing('full_action', ACTION_STARTED_AT, 'action=%s' % (action))
 xbmcplugin.endOfDirectory(int(sys.argv[1]))

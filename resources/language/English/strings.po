@@ -1054,6 +1054,18 @@ msgctxt "#33305"
 msgid "Sync Unknown"
 msgstr ""
 
+msgctxt "#33306"
+msgid "Debug"
+msgstr ""
+
+msgctxt "#33307"
+msgid "Log timings"
+msgstr ""
+
+msgctxt "#33308"
+msgid "Writes timing diagnostics to the Kodi log. Turn this on only while measuring performance."
+msgstr ""
+
 msgctxt "#32507"
 msgid "One bottom, one top"
 msgstr ""
