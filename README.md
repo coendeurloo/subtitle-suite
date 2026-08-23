@@ -67,7 +67,7 @@ SmartSync works best when one subtitle is known to be in sync (usually English).
 
 - Manual mode lets you pick target + reference explicitly.
 - Lucky mode can apply SmartSync automatically after a trusted English reference is found.
-- Replace mode creates backup before overwrite.
+- Replace mode creates a backup before overwrite. Restore stages and parses the backup before atomically replacing the original, so a failed restore keeps the existing subtitle untouched.
 
 ## AI Translation
 
@@ -76,6 +76,7 @@ AI translation is optional and manual key-based.
 - Requires OpenAI API key and model in settings.
 - Used as fallback in Lucky flows or directly via manual action.
 - Progress now shows explicit direction (for example: `Translating English to Dutch using AI...`).
+- Each response block must contain a complete translation. Invalid or source-echoed blocks retry once; a second failure stops the translation without changing an existing subtitle file.
 - Playback is paused during translation steps and resumed afterward.
 
 ## Settings (Quick View)
@@ -91,7 +92,7 @@ AI translation is optional and manual key-based.
 
 - Final selectable subtitle files stay in the video folder.
 - Backups and generated helper artifacts are stored in `DualSubtitles`.
-- `Restore Subtitle Backup...` restores latest backup safely.
+- `Restore Subtitle Backup...` stages and validates the latest backup before atomically restoring it.
 
 ## Credits
 
