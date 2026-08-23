@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.subtitlesuite"
        name="Subtitle Suite"
-       version="2.9.8"
+       version="2.9.9"
        provider-name="coendeurloo">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -21,6 +21,9 @@ The addon opens from the subtitle search screen and supports:
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
     <news>
+2.9.9 (unreleased)
+- Reused video, directory, subtitle-sample, and provider-search data for the lifetime of an action
+
 2.9.8 (unreleased)
 - Added opt-in timing logs for menu, action, provider, SmartSync, and AI translation work
 - Deferred subtitle encoding detector imports until a subtitle needs encoding detection

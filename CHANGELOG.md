@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.9.9 — Unreleased
+
+- Reused one action-scoped video context for playback metadata, file hashing, directory listings, filename language detection, subtitle samples, and provider searches.
+
 ## 2.9.8 — Unreleased
 
 - Added an opt-in `Log timings` debug setting for menu, full-action, provider, SmartSync, and AI translation-block timings.
