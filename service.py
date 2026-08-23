@@ -72,6 +72,7 @@ from resources.lib.languages import (
   LANGUAGE_CODE_ALIASES,
   KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
 )
+from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
@@ -1442,6 +1443,72 @@ def _dualsubs_backup_path(target_path):
   work_dir = _get_dualsubtitles_work_dir_for_path(target_path)
   return os.path.join(work_dir, '%s.bak' % (target_name))
 
+def _vfs_file_size(path):
+  file_handle = None
+  try:
+    file_handle = xbmcvfs.File(path)
+    return int(file_handle.size())
+  finally:
+    if file_handle is not None:
+      try:
+        file_handle.close()
+      except Exception:
+        pass
+
+def _read_vfs_file(path):
+  file_handle = None
+  try:
+    file_handle = xbmcvfs.File(path)
+    return file_handle.read()
+  finally:
+    if file_handle is not None:
+      try:
+        file_handle.close()
+      except Exception:
+        pass
+
+def _validate_staged_srt(path):
+  raw_content = _read_vfs_file(path)
+  if not raw_content:
+    raise RuntimeError('staged subtitle is empty')
+
+  if isinstance(raw_content, bytes):
+    text_candidates = []
+    for encoding in ('utf-8-sig', 'utf-16', 'cp1252', 'latin-1'):
+      try:
+        text_candidates.append(raw_content.decode(encoding))
+      except Exception:
+        pass
+  else:
+    text_candidates = [_as_text(raw_content)]
+
+  pysubs2 = _load_pysubs2()
+  for text in text_candidates:
+    try:
+      pysubs2.SSAFile.from_string(text, format_='srt')
+      return
+    except Exception:
+      pass
+  raise RuntimeError('staged subtitle did not parse as SRT')
+
+def _vfs_atomic_replace(staged_path, target_path):
+  try:
+    return bool(xbmcvfs.rename(staged_path, target_path))
+  except Exception:
+    return False
+
+def _stage_and_replace_subtitle(source_path, target_path, suffix):
+  return copy_and_replace_atomically(
+    source_path,
+    target_path,
+    xbmcvfs.copy,
+    _vfs_atomic_replace,
+    _vfs_file_size,
+    _validate_staged_srt,
+    xbmcvfs.delete,
+    lambda destination: same_directory_temp_path(destination, suffix),
+  )
+
 def _replace_file_with_dualsubs_backup(source_path, target_path, backup_existing=True):
   had_existing = False
   backup_path = ''
@@ -1458,16 +1525,7 @@ def _replace_file_with_dualsubs_backup(source_path, target_path, backup_existing
       raise RuntimeError('backup copy failed')
     _set_writable_permissions(backup_path, is_directory=False)
 
-  if xbmcvfs.exists(target_path):
-    xbmcvfs.delete(target_path)
-
-  if not xbmcvfs.copy(source_path, target_path):
-    if backup_path and not xbmcvfs.exists(target_path):
-      try:
-        xbmcvfs.copy(backup_path, target_path)
-      except Exception:
-        pass
-    raise RuntimeError('target write failed')
+  _stage_and_replace_subtitle(source_path, target_path, '.replace.srt')
 
   _set_writable_permissions(target_path, is_directory=False)
   return {
@@ -2663,10 +2721,7 @@ def _run_restore_backup_action():
     return
 
   try:
-    if xbmcvfs.exists(target_path):
-      xbmcvfs.delete(target_path)
-    if not xbmcvfs.copy(backup_path, target_path):
-      raise RuntimeError('restore copy failed')
+    _stage_and_replace_subtitle(backup_path, target_path, '.restore.srt')
     _set_writable_permissions(target_path, is_directory=False)
     _notify(__language__(33157) % (os.path.basename(target_path)), NOTIFY_INFO)
     _log('restored backup: target=%s backup=%s' % (target_path, backup_path), LOG_INFO)
