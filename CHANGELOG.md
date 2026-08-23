@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.9.11 — Unreleased
+
+- Moved provider searches and per-block OpenAI translation requests to cancellable worker jobs; enabled provider searches now start in parallel.
+- Capped OpenSubtitles request retries at two attempts.
+- Remembered and preselected the last download language; retained the last main action without changing menu structure.
+
 ## 2.9.10 — Unreleased
 
 - Made the 90-second Lucky search budget propagate to English-reference and risky-candidate searches/downloads, in addition to trusted candidate searches.

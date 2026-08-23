@@ -59,6 +59,8 @@
         <setting id="second_subtitle_required" type="bool" label="33028" default="false" subsetting="true"/>
         <setting label="33056" type="text" enable="false"/>
         <setting id="last_used_subtitle_dir" type="text" default="" visible="false"/>
+        <setting id="last_download_language" type="text" default="" visible="false"/>
+        <setting id="last_used_main_action" type="text" default="" visible="false"/>
     </category>
 
     <category label="33049">

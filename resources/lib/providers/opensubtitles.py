@@ -38,6 +38,7 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
         self.api_key = (config.get('api_key') or '').strip()
         self.user_agent = (config.get('user_agent') or 'SubtitleSuite')
         self.timeout_seconds = int(config.get('timeout_seconds') or 45)
+        self.max_request_attempts = max(1, int(config.get('max_request_attempts') or 2))
         self._token = ''
         self._base_url = self.api_root
         self._log = logger
@@ -120,13 +121,13 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
                     raise ProviderAuthError('OpenSubtitles login failed. Use your OpenSubtitles username (not email), password, and API key.')
                 if status_code == 400 and ('invalid username' in lowered_body or 'invalid username/password' in lowered_body):
                     raise ProviderAuthError('OpenSubtitles login failed. Use your OpenSubtitles username (not email), not your email address.')
-                if self._is_retryable_status(status_code) and attempt < 4:
+                if self._is_retryable_status(status_code) and attempt < self.max_request_attempts:
                     self._safe_log('retrying json request after HTTP %s for %s %s (attempt %d)' % (status_code, method, path, attempt))
                     _retry_sleep(attempt)
                     continue
                 raise ProviderRequestError('OpenSubtitles request failed (%s): %s' % (getattr(exc, 'code', 'unknown'), body[:180]))
             except URLError as exc:
-                if attempt < 4:
+                if attempt < self.max_request_attempts:
                     self._safe_log('retrying json request after network error for %s %s (attempt %d): %s' % (method, path, attempt, exc))
                     _retry_sleep(attempt)
                     continue
@@ -134,7 +135,7 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
             except ValueError as exc:
                 raise ProviderRequestError('OpenSubtitles invalid JSON response: %s' % exc)
             except Exception as exc:
-                if attempt < 3:
+                if attempt < self.max_request_attempts:
                     self._safe_log('retrying json request after unexpected error for %s %s (attempt %d): %s' % (method, path, attempt, exc))
                     _retry_sleep(attempt)
                     continue
@@ -152,19 +153,19 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
                 return response.read()
             except HTTPError as exc:
                 status_code = int(getattr(exc, 'code', 0) or 0)
-                if self._is_retryable_status(status_code) and attempt < 4:
+                if self._is_retryable_status(status_code) and attempt < self.max_request_attempts:
                     self._safe_log('retrying binary download after HTTP %s (attempt %d)' % (status_code, attempt))
                     _retry_sleep(attempt)
                     continue
                 raise ProviderRequestError('OpenSubtitles download request failed (%s).' % getattr(exc, 'code', 'unknown'))
             except URLError as exc:
-                if attempt < 4:
+                if attempt < self.max_request_attempts:
                     self._safe_log('retrying binary download after network error (attempt %d): %s' % (attempt, exc))
                     _retry_sleep(attempt)
                     continue
                 raise ProviderRequestError('OpenSubtitles download request failed: %s' % exc)
             except Exception as exc:
-                if attempt < 3:
+                if attempt < self.max_request_attempts:
                     self._safe_log('retrying binary download after unexpected error (attempt %d): %s' % (attempt, exc))
                     _retry_sleep(attempt)
                     continue

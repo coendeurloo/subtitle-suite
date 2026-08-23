@@ -64,6 +64,7 @@ from resources.lib.languages import (
   KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
 )
 from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
+from resources.lib.background_jobs import CancellableJob, JobCancelled
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import translate_block_with_one_retry
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
@@ -268,11 +269,29 @@ try:
 except Exception:
   window = ''
 
-def AddItem(name, url):
+def _get_last_used_main_action():
+  try:
+    return _as_text(__addon__.getSetting('last_used_main_action')).strip()
+  except Exception:
+    return ''
+
+def _remember_main_action(action):
+  # The Kodi subtitle-search directory API has no portable focus/preselect
+  # call.  Store the action and expose it as a list-item property for skins.
+  if action not in ('downloadmanual', 'ifeelluckysingle', 'ifeelluckydual', 'browsedual', 'smartsyncmanual', 'translatemanual', 'restorebackup', 'settings'):
+    return
+  try:
+    __addon__.setSetting('last_used_main_action', action)
+  except Exception as exc:
+    _log('could not remember main action (%s)' % (exc), LOG_DEBUG)
+
+def AddItem(name, url, action_name=''):
   global FIRST_MENU_ITEM_REPORTED
   listitem = xbmcgui.ListItem(label="", label2=name)
   listitem.setProperty("sync", "false")
   listitem.setProperty("hearing_imp", "false")
+  if action_name and action_name == _get_last_used_main_action():
+    listitem.setProperty('subtitle_suite_last_used', 'true')
   xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=listitem, isFolder=False)
   if not FIRST_MENU_ITEM_REPORTED:
     FIRST_MENU_ITEM_REPORTED = True
@@ -281,14 +300,14 @@ def AddItem(name, url):
 def Search():
   menu_started_at = time.monotonic()
   try:
-    AddItem(__language__(33162), "plugin://%s/?action=downloadmanual" % (__scriptid__))
-    AddItem(__language__(33274), "plugin://%s/?action=ifeelluckysingle" % (__scriptid__))
-    AddItem(__language__(33275), "plugin://%s/?action=ifeelluckydual" % (__scriptid__))
-    AddItem(__language__(33004), "plugin://%s/?action=browsedual" % (__scriptid__))
-    AddItem(__language__(33120), "plugin://%s/?action=smartsyncmanual" % (__scriptid__))
-    AddItem(__language__(33121), "plugin://%s/?action=translatemanual" % (__scriptid__))
-    AddItem(__language__(33150), "plugin://%s/?action=restorebackup" % (__scriptid__))
-    AddItem(__language__(33008), "plugin://%s/?action=settings" % (__scriptid__))
+    AddItem(__language__(33162), "plugin://%s/?action=downloadmanual" % (__scriptid__), 'downloadmanual')
+    AddItem(__language__(33274), "plugin://%s/?action=ifeelluckysingle" % (__scriptid__), 'ifeelluckysingle')
+    AddItem(__language__(33275), "plugin://%s/?action=ifeelluckydual" % (__scriptid__), 'ifeelluckydual')
+    AddItem(__language__(33004), "plugin://%s/?action=browsedual" % (__scriptid__), 'browsedual')
+    AddItem(__language__(33120), "plugin://%s/?action=smartsyncmanual" % (__scriptid__), 'smartsyncmanual')
+    AddItem(__language__(33121), "plugin://%s/?action=translatemanual" % (__scriptid__), 'translatemanual')
+    AddItem(__language__(33150), "plugin://%s/?action=restorebackup" % (__scriptid__), 'restorebackup')
+    AddItem(__language__(33008), "plugin://%s/?action=settings" % (__scriptid__), 'settings')
   finally:
     _log_timing('menu_build', menu_started_at)
 
@@ -1074,6 +1093,7 @@ def _build_download_provider_config():
       'password': _get_opensubtitles_password(),
       'api_key': _get_opensubtitles_api_key(),
       'timeout_seconds': DOWNLOAD_TIMEOUT_SECONDS,
+      'max_request_attempts': 2,
       'user_agent': 'SubtitleSuite/%s' % (__version__),
     },
     'podnadpisi': {
@@ -1173,6 +1193,24 @@ def _progress_update(progress, percent, line1='', line2=''):
     progress.update(percent)
   except Exception:
     pass
+
+def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.'):
+  """Poll a worker from Kodi's UI thread and discard work after cancellation."""
+  while not job.is_done():
+    try:
+      if progress is not None and progress.iscanceled():
+        job.cancel()
+        raise RuntimeError(cancel_message)
+    except RuntimeError:
+      raise
+    except Exception:
+      pass
+    job.wait(0.05)
+
+  try:
+    return job.get_result()
+  except JobCancelled:
+    raise RuntimeError(cancel_message)
 
 def _extract_json_payload(raw_content):
   content = _as_text(raw_content).strip()
@@ -2588,14 +2626,20 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       block_started_at = time.monotonic()
       block_attempts = [1]
       def _request_translation_block():
-        return _openai_translate_lines(
-          request_lines,
-          source_language_code,
-          target_language_code,
-          api_key,
-          model,
-          timeout_seconds
-        )
+        def _translate_worker(cancel_event):
+          if cancel_event.is_set():
+            raise JobCancelled()
+          return _openai_translate_lines(
+            request_lines,
+            source_language_code,
+            target_language_code,
+            api_key,
+            model,
+            timeout_seconds
+          )
+
+        job = CancellableJob(_translate_worker).start()
+        return _wait_for_network_job(job, progress, __language__(33072))
 
       def _record_translation_block_failure(attempt, exc):
         block_attempts[0] = attempt
@@ -2623,12 +2667,28 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           'block=%d attempts=%d' % (block_index, block_attempts[0]),
         )
 
+      try:
+        if progress.iscanceled():
+          raise RuntimeError(__language__(33072))
+      except RuntimeError:
+        raise
+      except Exception:
+        pass
+
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
 
       translated_count += len(chunk_lines)
       index += batch_size
       _progress_update(progress, int((100.0 * translated_count) / total_lines), __language__(33064), '%d/%d' % (translated_count, total_lines))
+
+    try:
+      if progress.iscanceled():
+        raise RuntimeError(__language__(33072))
+    except RuntimeError:
+      raise
+    except Exception:
+      pass
 
     temp_output = os.path.join(__temp__, '%s.srt' % (str(uuid.uuid4())))
     subtitle_data.save(temp_output, encoding='utf-8', format_='srt')
@@ -3752,12 +3812,23 @@ def _select_download_language():
     languages.append(preferred2)
 
   options.append(__language__(33197))
-  selected = __msg_box__.select(__language__(33185), options)
+  last_language = _canonicalize_language_code(_as_text(__addon__.getSetting('last_download_language')))
+  preselect = -1
+  if last_language in languages:
+    preselect = languages.index(last_language)
+  try:
+    selected = __msg_box__.select(__language__(33185), options, preselect=preselect)
+  except TypeError:
+    selected = __msg_box__.select(__language__(33185), options)
   if selected is None or selected < 0:
     return None, ''
 
   if selected < len(languages):
     code = languages[selected]
+    try:
+      __addon__.setSetting('last_download_language', code)
+    except Exception:
+      pass
     return code, code.upper()
 
   custom_code = ''
@@ -3769,6 +3840,10 @@ def _select_download_language():
   if not normalized:
     _notify(__language__(33194), NOTIFY_WARNING)
     return None, ''
+  try:
+    __addon__.setSetting('last_download_language', normalized)
+  except Exception:
+    pass
   return normalized, normalized.upper()
 
 def _notify_download_provider_warning_once(provider_name, message):
@@ -3969,7 +4044,7 @@ def _restore_provider_timeout(provider, original_timeout):
   except Exception:
     pass
 
-def _search_download_results(context, language_code):
+def _search_download_results(context, language_code, progress=None):
   providers = _get_ready_download_providers()
   max_results = _get_download_max_results()
   _log(
@@ -3993,65 +4068,109 @@ def _search_download_results(context, language_code):
   last_request_message = ''
   deadline_at = context.get('deadline_at')
 
-  for provider in providers:
-    provider_started_at = time.monotonic()
-    provider_status = 'ok'
-    original_timeout = None
-    try:
-      original_timeout = _apply_provider_deadline(provider, deadline_at)
-      provider_key = _as_text(getattr(provider, 'name', 'provider')).lower()
-      cache_key = (provider_key, _as_text(context.get('video_hash', context.get('file_hash', ''))), _as_text(language_code).lower())
-      action_context = _get_action_video_context()
-      if cache_key in action_context.provider_search_results:
-        results = action_context.provider_search_results[cache_key]
-        provider_status = 'cache_hit'
-      else:
+  action_context = _get_action_video_context()
+  pending_jobs = []
+
+  def _cache_key(provider):
+    provider_key = _as_text(getattr(provider, 'name', 'provider')).lower()
+    return (provider_key, _as_text(context.get('video_hash', context.get('file_hash', ''))), _as_text(language_code).lower())
+
+  def _provider_search_worker(provider, cache_key):
+    def _operation(cancel_event):
+      started_at = time.monotonic()
+      original_timeout = None
+      try:
+        if cancel_event.is_set():
+          raise JobCancelled()
+        original_timeout = _apply_provider_deadline(provider, deadline_at)
         results = provider.search(context, language_code, max_results)
-        action_context.provider_search_results[cache_key] = results
-      _log(
-        'download provider results (%s): %d' % (
-          _as_text(getattr(provider, 'display_name', provider.name)),
-          len(results)
-        ),
-        LOG_INFO
-      )
-      for item in results:
-        aggregated.append(item)
-    except RuntimeError as exc:
-      if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
-        raise
-      provider_status = 'runtime_error'
-      request_failures += 1
-      last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
-      _log('download provider runtime failure (%s): %s' % (provider.name, exc), LOG_WARNING)
-    except ProviderAuthError as exc:
-      provider_status = 'auth_error'
-      auth_failures += 1
-      last_auth_message = _format_download_provider_user_message(provider, exc, auth_error=True)
-      _log('download provider auth failed (%s): %s' % (provider.name, exc), LOG_WARNING)
-      _notify_download_provider_warning_once(provider.name, last_auth_message)
-    except ProviderRequestError as exc:
-      provider_status = 'request_error'
-      request_failures += 1
-      last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
-      _log('download provider request failed (%s): %s' % (provider.name, exc), LOG_WARNING)
-      provider_key = _as_text(getattr(provider, 'name', '')).lower().strip()
-      if provider_key == 'bsplayer':
+        if cancel_event.is_set():
+          raise JobCancelled()
+        return {'provider': provider, 'cache_key': cache_key, 'results': results, 'started_at': started_at}
+      finally:
+        _restore_provider_timeout(provider, original_timeout)
+    return CancellableJob(_operation).start()
+
+  # A cached result is available immediately.  Fresh provider searches start
+  # together, rather than making a slow provider delay the others.
+  for provider in providers:
+    cache_key = _cache_key(provider)
+    if cache_key in action_context.provider_search_results:
+      results = action_context.provider_search_results[cache_key]
+      aggregated.extend(results)
+      _log_timing('provider_query', time.monotonic(), 'provider=%s language=%s status=cache_hit' % (provider.name, language_code))
+      continue
+    pending_jobs.append((provider, _provider_search_worker(provider, cache_key)))
+
+  while pending_jobs:
+    if _remaining_deadline_seconds(deadline_at) is not None and _remaining_deadline_seconds(deadline_at) <= 0:
+      for _, job in pending_jobs:
+        job.cancel()
+      raise RuntimeError(LUCKY_TIMEOUT_TOKEN)
+
+    try:
+      if progress is not None and progress.iscanceled():
+        for _, job in pending_jobs:
+          job.cancel()
+        raise RuntimeError(__language__(33072))
+    except RuntimeError:
+      raise
+    except Exception:
+      pass
+
+    completed = []
+    for provider, job in pending_jobs:
+      if job.is_done():
+        completed.append((provider, job))
+
+    if len(completed) == 0:
+      pending_jobs[0][1].wait(0.05)
+      continue
+
+    for provider, job in completed:
+      pending_jobs.remove((provider, job))
+      provider_status = 'ok'
+      started_at = time.monotonic()
+      try:
+        outcome = job.get_result()
+        started_at = outcome.get('started_at', started_at)
+        results = outcome.get('results') or []
+        action_context.provider_search_results[outcome['cache_key']] = results
+        aggregated.extend(results)
+        _log('download provider results (%s): %d' % (_as_text(getattr(provider, 'display_name', provider.name)), len(results)), LOG_INFO)
+      except JobCancelled:
+        provider_status = 'cancelled'
+      except RuntimeError as exc:
+        if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
+          for _, pending_job in pending_jobs:
+            pending_job.cancel()
+          raise
+        provider_status = 'runtime_error'
+        request_failures += 1
+        last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
+        _log('download provider runtime failure (%s): %s' % (provider.name, exc), LOG_WARNING)
+      except ProviderAuthError as exc:
+        provider_status = 'auth_error'
+        auth_failures += 1
+        last_auth_message = _format_download_provider_user_message(provider, exc, auth_error=True)
+        _log('download provider auth failed (%s): %s' % (provider.name, exc), LOG_WARNING)
+        _notify_download_provider_warning_once(provider.name, last_auth_message)
+      except ProviderRequestError as exc:
+        provider_status = 'request_error'
+        request_failures += 1
+        last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
+        _log('download provider request failed (%s): %s' % (provider.name, exc), LOG_WARNING)
+        provider_key = _as_text(getattr(provider, 'name', '')).lower().strip()
         exc_text = _as_text(exc).lower()
-        if 'timed out' in exc_text or 'timeout' in exc_text or 'network error' in exc_text:
+        if provider_key == 'bsplayer' and ('timed out' in exc_text or 'timeout' in exc_text or 'network error' in exc_text):
           _disable_download_provider_for_session(provider.name)
-    except Exception as exc:
-      provider_status = 'unexpected_error'
-      request_failures += 1
-      last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
-      _log('download provider unexpected failure (%s): %s' % (provider.name, exc), LOG_WARNING)
-    finally:
-      _restore_provider_timeout(provider, original_timeout)
-      _log_timing(
-        'provider_query',
-        provider_started_at,
-        'provider=%s language=%s status=%s' % (provider.name, language_code, provider_status),
-      )
+      except Exception as exc:
+        provider_status = 'unexpected_error'
+        request_failures += 1
+        last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
+        _log('download provider failure (%s): %s' % (provider.name, exc), LOG_WARNING)
+      finally:
+        _log_timing('provider_query', started_at, 'provider=%s language=%s status=%s' % (provider.name, language_code, provider_status))
 
   if len(aggregated) == 0:
     if auth_failures > 0 and auth_failures == len(providers):
@@ -4855,7 +4974,7 @@ def _run_download_for_language(video_dir, video_basename, language_code, languag
     provider_names = _configured_download_provider_names()
     if len(provider_names) > 0:
       _progress_update(progress, 5, search_line, '%s: %s' % (__language__(33227), ' | '.join(provider_names)))
-    results = _search_download_results(context, language_code)
+    results = _search_download_results(context, language_code, progress=progress)
   except RuntimeError as exc:
     _close_progress(progress)
     _notify(_as_text(exc), NOTIFY_WARNING)
@@ -4909,7 +5028,7 @@ def _open_manual_download_results_browser(video_dir, video_basename, language_co
     provider_names = _configured_download_provider_names()
     if len(provider_names) > 0:
       _progress_update(progress, 5, search_line, '%s: %s' % (__language__(33227), ' | '.join(provider_names)))
-    results = _search_download_results(context, language_code)
+    results = _search_download_results(context, language_code, progress=progress)
   except RuntimeError as exc:
     _close_progress(progress)
     _notify(_as_text(exc), NOTIFY_WARNING)
@@ -7108,6 +7227,9 @@ def _run_dual_subtitle_flow():
 
 action = params.get('action', 'search')
 ACTION_STARTED_AT = time.monotonic()
+
+if action != 'search' and action != 'manualsearch':
+  _remember_main_action(action)
 
 if action == 'manualsearch':
   Search()

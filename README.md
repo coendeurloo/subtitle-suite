@@ -115,6 +115,10 @@ In `Addon Settings...` → `Debug`, enable `Log timings` only while measuring. T
 
 Each playback action also reuses one video context, avoiding repeated video hashing and folder/sample reads while it finds, downloads, syncs, or translates subtitles.
 
+Provider searches now run in parallel worker threads. The progress dialog stays cancellable; cancellation discards late results and prevents a cancelled translation from replacing a subtitle. OpenSubtitles is capped at two attempts per request.
+
+The last download language is remembered and preselected in the language picker. The last main-menu action is retained as a list-item property for compatible skins; Kodi's standard subtitle-search directory API does not provide a safe portable way to force focus to a menu item without changing the menu.
+
 ## File/Backup Policy
 
 - Final selectable subtitle files stay in the video folder.
