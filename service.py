@@ -76,6 +76,7 @@ CHARSET_NORMALIZER_FROM_BYTES = None
 CHARSET_NORMALIZER_LOAD_ATTEMPTED = False
 ACTION_VIDEO_CONTEXT = None
 ENCODING_SAMPLE_BYTES = 65536
+LUCKY_TIMEOUT_TOKEN = '__lucky_timeout__'
 SYNC_TIER_PRIORITY = {
   'unknown': 0,
   'likely': 1,
@@ -3943,6 +3944,30 @@ def _get_ready_download_providers():
     raise RuntimeError(__language__(33173))
   return ready
 
+def _remaining_deadline_seconds(deadline_at):
+  if deadline_at is None:
+    return None
+  return max(0.0, float(deadline_at) - time.monotonic())
+
+def _apply_provider_deadline(provider, deadline_at):
+  remaining = _remaining_deadline_seconds(deadline_at)
+  if remaining is None:
+    return None
+  if remaining <= 0:
+    raise RuntimeError(LUCKY_TIMEOUT_TOKEN)
+  original_timeout = getattr(provider, 'timeout_seconds', None)
+  if original_timeout is not None:
+    provider.timeout_seconds = min(float(original_timeout), remaining)
+  return original_timeout
+
+def _restore_provider_timeout(provider, original_timeout):
+  if original_timeout is None:
+    return
+  try:
+    provider.timeout_seconds = original_timeout
+  except Exception:
+    pass
+
 def _search_download_results(context, language_code):
   providers = _get_ready_download_providers()
   max_results = _get_download_max_results()
@@ -3965,11 +3990,14 @@ def _search_download_results(context, language_code):
   request_failures = 0
   last_auth_message = ''
   last_request_message = ''
+  deadline_at = context.get('deadline_at')
 
   for provider in providers:
     provider_started_at = time.monotonic()
     provider_status = 'ok'
+    original_timeout = None
     try:
+      original_timeout = _apply_provider_deadline(provider, deadline_at)
       provider_key = _as_text(getattr(provider, 'name', 'provider')).lower()
       cache_key = (provider_key, _as_text(context.get('video_hash', context.get('file_hash', ''))), _as_text(language_code).lower())
       action_context = _get_action_video_context()
@@ -3988,6 +4016,13 @@ def _search_download_results(context, language_code):
       )
       for item in results:
         aggregated.append(item)
+    except RuntimeError as exc:
+      if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
+        raise
+      provider_status = 'runtime_error'
+      request_failures += 1
+      last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
+      _log('download provider runtime failure (%s): %s' % (provider.name, exc), LOG_WARNING)
     except ProviderAuthError as exc:
       provider_status = 'auth_error'
       auth_failures += 1
@@ -4010,6 +4045,7 @@ def _search_download_results(context, language_code):
       last_request_message = _format_download_provider_user_message(provider, exc, auth_error=False)
       _log('download provider unexpected failure (%s): %s' % (provider.name, exc), LOG_WARNING)
     finally:
+      _restore_provider_timeout(provider, original_timeout)
       _log_timing(
         'provider_query',
         provider_started_at,
@@ -4041,7 +4077,11 @@ def _write_download_payload_to_target(context, language_code, selected_result):
   if provider is None:
     raise RuntimeError(__language__(33193))
 
-  payload = provider.download(selected_result)
+  original_timeout = _apply_provider_deadline(provider, context.get('deadline_at'))
+  try:
+    payload = provider.download(selected_result)
+  finally:
+    _restore_provider_timeout(provider, original_timeout)
   data = payload.get('content_bytes')
   if data is None:
     raise RuntimeError(__language__(33193))
@@ -4213,7 +4253,8 @@ def _download_best_result_for_language(
   max_provider_attempts=2,
   retry_delay_seconds=0.9,
   progress_callback=None,
-  progress_label=''
+  progress_label='',
+  deadline_at=None
 ):
   response = {
     'path': '',
@@ -4224,6 +4265,7 @@ def _download_best_result_for_language(
     return response
 
   context = _build_download_context(video_dir, video_basename)
+  context['deadline_at'] = deadline_at
   normalized_language = _canonicalize_language_code(language_code) or _as_text(language_code).lower().strip()
   if not normalized_language:
     return response
@@ -4232,14 +4274,24 @@ def _download_best_result_for_language(
     language_label = _language_display_name(normalized_language)
 
   if request_delay_seconds and request_delay_seconds > 0:
+    remaining = _remaining_deadline_seconds(deadline_at)
+    if remaining is not None and remaining <= 0:
+      raise RuntimeError(LUCKY_TIMEOUT_TOKEN)
     try:
-      time.sleep(float(request_delay_seconds))
+      delay_seconds = float(request_delay_seconds)
+      if remaining is not None:
+        delay_seconds = min(delay_seconds, remaining)
+      time.sleep(delay_seconds)
     except Exception:
       pass
+    if _remaining_deadline_seconds(deadline_at) is not None and _remaining_deadline_seconds(deadline_at) <= 0:
+      raise RuntimeError(LUCKY_TIMEOUT_TOKEN)
 
   try:
     results = _search_download_results(context, normalized_language)
   except RuntimeError as exc:
+    if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
+      raise
     if notify_errors:
       _notify(_as_text(exc), NOTIFY_WARNING)
     _log('lucky download search failed for %s: %s' % (normalized_language, exc), LOG_WARNING)
@@ -4313,6 +4365,8 @@ def _download_best_result_for_language(
   global_attempt = 0
 
   for selected_result in candidate_results:
+    if _remaining_deadline_seconds(deadline_at) is not None and _remaining_deadline_seconds(deadline_at) <= 0:
+      raise RuntimeError(LUCKY_TIMEOUT_TOKEN)
     if global_attempt >= attempt_limit:
       break
 
@@ -6008,13 +6062,14 @@ def _run_i_feel_lucky_single_flow():
   progress = _create_lucky_progress()
   smart_sync_temp_files = []
   lucky_cancel_token = '__lucky_cancelled__'
-  lucky_timeout_token = '__lucky_timeout__'
+  lucky_timeout_token = LUCKY_TIMEOUT_TOKEN
   english_preview_confirmed_sync = False
   english_preview_tested = False
   smartsync_applied_any = False
   status_lines = []
-  search_phase_start = time.time()
+  search_phase_start = time.monotonic()
   search_phase_timeout_seconds = 90
+  search_phase_deadline_at = search_phase_start + search_phase_timeout_seconds
   search_phase_timeout_active = True
 
   def _status(line):
@@ -6028,7 +6083,7 @@ def _run_i_feel_lucky_single_flow():
   def _check_search_timeout():
     if not search_phase_timeout_active:
       return
-    elapsed = time.time() - search_phase_start
+    elapsed = time.monotonic() - search_phase_start
     if elapsed >= search_phase_timeout_seconds:
       _log('lucky single search phase timeout after %.1f seconds' % (elapsed), LOG_WARNING)
       raise RuntimeError(lucky_timeout_token)
@@ -6055,7 +6110,8 @@ def _run_i_feel_lucky_single_flow():
       max_provider_attempts=2,
       retry_delay_seconds=0.95,
       progress_callback=_progress_line,
-      progress_label=slot['label']
+      progress_label=slot['label'],
+      deadline_at=search_phase_deadline_at
     )
     path = result.get('path')
     if not path:
@@ -6450,13 +6506,14 @@ def _run_i_feel_lucky_flow():
   progress = _create_lucky_progress()
   smart_sync_temp_files = []
   lucky_cancel_token = '__lucky_cancelled__'
-  lucky_timeout_token = '__lucky_timeout__'
+  lucky_timeout_token = LUCKY_TIMEOUT_TOKEN
   english_preview_confirmed_sync = False
   english_preview_tested = False
   smartsync_applied_any = False
   status_lines = []
-  search_phase_start = time.time()
+  search_phase_start = time.monotonic()
   search_phase_timeout_seconds = 90
+  search_phase_deadline_at = search_phase_start + search_phase_timeout_seconds
   search_phase_timeout_active = True
 
   def _status(line):
@@ -6470,7 +6527,7 @@ def _run_i_feel_lucky_flow():
   def _check_search_timeout():
     if not search_phase_timeout_active:
       return
-    elapsed = time.time() - search_phase_start
+    elapsed = time.monotonic() - search_phase_start
     if elapsed >= search_phase_timeout_seconds:
       _log('lucky search phase timeout after %.1f seconds' % (elapsed), LOG_WARNING)
       raise RuntimeError(lucky_timeout_token)
@@ -6497,7 +6554,8 @@ def _run_i_feel_lucky_flow():
       max_provider_attempts=2,
       retry_delay_seconds=0.95,
       progress_callback=_progress_line,
-      progress_label=slot['label']
+      progress_label=slot['label'],
+      deadline_at=search_phase_deadline_at
     )
     path = result.get('path')
     if not path:
