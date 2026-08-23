@@ -245,7 +245,10 @@ def _ensure_runtime_bootstrap():
     download_picker_dialog = None
 
   if xbmcvfs.exists(__temp__):
-    shutil.rmtree(__temp__)
+    try:
+      shutil.rmtree(__temp__)
+    except Exception as exc:
+      _log('runtime bootstrap temp cleanup failed for %s (%s); continuing' % (__temp__, exc), LOG_WARNING)
   xbmcvfs.mkdirs(__temp__)
 
   mergesubs = dualsubs_mergesubs
