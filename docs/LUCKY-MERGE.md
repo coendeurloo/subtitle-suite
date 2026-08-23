@@ -1,7 +1,7 @@
-# Lucky acquisition comparison (current 2.9.11)
+# Lucky acquisition comparison (current 2.9.13)
 
-This table records the currently executed decision order before any merge of
-the two orchestrators.  “Target” means a configured output language/slot.
+This table records the decision order used for the extraction. “Target” means
+a configured output language/slot.
 
 | # | Single Lucky (one target) | Dual Lucky (two targets) | Classification |
 | --- | --- | --- | --- |
@@ -18,17 +18,25 @@ the two orchestrators.  “Target” means a configured output language/slot.
 
 ## Stop condition
 
-There are two genuine acquisition differences before the final display/merge
+There were two genuine acquisition differences before the final display/merge
 step: the local-match algorithm (#2) and the eligibility rule for the English
-sync preview (#5).  Merging the current functions as-is would either change
-one mode’s behaviour or encode mode-specific branches in the supposed shared
-acquisition function.  Per the requested stop rule, no merge code has been
-written.
+sync preview (#5). The approved normalization below removes those differences
+for new executions.
 
 ## Approved behaviour normalization
 
-The approved implementation will use the target-slot form of
+The approved implementation uses the target-slot form of
 `_auto_match_subtitles` for Single Lucky and will check an available English
 reference in both modes when `lucky_strict_english_preview` is enabled. The
 setting defaults to enabled; turning it off skips that preview when its extra
 playback time is not wanted.
+
+## Extraction result
+
+`_run_lucky_acquisition(slots)` is the execution path for both public Lucky
+actions. It receives either one slot or two slots and owns the acquisition
+steps: local match, trusted download, English-reference handling, SmartSync,
+AI fallback, and risky-candidate selection. The final activation remains in
+two separate helpers: `_finalize_lucky_single_display` and
+`_finalize_lucky_dual_display`. The latter calls the existing dual-subtitle
+finalization path; `resources/lib/dualsubs.py` is unchanged.

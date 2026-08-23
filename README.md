@@ -69,6 +69,11 @@ The 90-second Lucky search budget is monotonic and is passed to each provider
 search and download as its remaining timeout.  AI translation remains a
 separate, explicitly confirmed step after the search phase.
 
+Both Lucky actions now execute the same acquisition pipeline with one or two
+target-language slots. Their presentation remains separate: one target is
+activated as a single subtitle, while two targets use the existing dual
+subtitle finalization path.
+
 ## Safe No-Match Behavior
 
 Lucky does **not** silently pick bad unknown subtitles anymore.

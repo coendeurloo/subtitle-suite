@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.9.13 — Unreleased
+
+- Routed Single and Dual Lucky through one target-slot acquisition pipeline; their final single/dual presentation paths remain separate.
+
 ## 2.9.12 — Unreleased
 
 ### Intentional Lucky Single behaviour changes

@@ -6209,7 +6209,31 @@ def _cleanup_lucky_downloaded_files(slots):
       except Exception:
         pass
 
-def _run_i_feel_lucky_single_flow():
+def _finalize_lucky_single_display(subtitle_path, video_dir, smart_sync_temp_files):
+  """Activate one acquired subtitle; kept separate from dual presentation."""
+  subtitle_dir = os.path.dirname(subtitle_path) if subtitle_path else video_dir
+  return _finalize_selected_subtitle_paths(
+    subtitle_path,
+    None,
+    subtitle1_dir=subtitle_dir,
+    smart_sync_temp_files=smart_sync_temp_files,
+    show_notifications=False,
+    register_download_item=True
+  )
+
+def _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_temp_files):
+  """Merge and activate two acquired subtitles; dualsubs remains untouched."""
+  subtitle_dir = os.path.dirname(subtitle1) if subtitle1 else video_dir
+  return _finalize_selected_subtitle_paths(
+    subtitle1,
+    subtitle2,
+    subtitle1_dir=subtitle_dir,
+    smart_sync_temp_files=smart_sync_temp_files,
+    show_notifications=False,
+    register_download_item=True
+  )
+
+def _run_lucky_acquisition(slots):
   global LUCKY_FLOW_ACTIVE
   LUCKY_FLOW_ACTIVE = True
   video_dir, video_basename = _current_video_context()
@@ -6217,459 +6241,7 @@ def _run_i_feel_lucky_single_flow():
     _show_lucky_center_summary(__language__(33230), [__language__(33175)])
     return
 
-  slot = _build_lucky_single_target_slot()
-  if not slot:
-    _show_lucky_center_summary(__language__(33230), [__language__(33279)])
-    return
-
-  _cleanup_generated_movie_sidecars(video_dir, video_basename)
-  _log('i feel lucky single start: video_dir=%s video=%s target=%s' % (video_dir, video_basename, slot.get('code')), LOG_INFO)
-
-  progress = _create_lucky_progress()
-  smart_sync_temp_files = []
-  lucky_cancel_token = '__lucky_cancelled__'
-  lucky_timeout_token = LUCKY_TIMEOUT_TOKEN
-  english_preview_confirmed_sync = False
-  english_preview_tested = False
-  smartsync_applied_any = False
-  status_lines = []
-  search_phase_timeout_seconds = 90
-  search_deadline = LuckyDeadline(search_phase_timeout_seconds)
-  search_phase_start = search_deadline.started_at
-  search_phase_deadline_at = search_deadline.deadline_at
-  search_phase_timeout_active = True
-  _log('lucky pipeline plan: %s' % (lucky_decision_steps([slot.get('code', '')]),), LOG_DEBUG)
-
-  def _status(line):
-    text = _as_text(line).strip()
-    if not text:
-      return
-    if len(status_lines) > 0 and status_lines[-1] == text:
-      return
-    status_lines.append(text)
-
-  def _check_search_timeout():
-    if not search_phase_timeout_active:
-      return
-    elapsed = time.monotonic() - search_phase_start
-    if elapsed >= search_phase_timeout_seconds:
-      _log('lucky single search phase timeout after %.1f seconds' % (elapsed), LOG_WARNING)
-      raise RuntimeError(lucky_timeout_token)
-
-  def _step(percent, line1='', line2=''):
-    if not _update_lucky_progress(progress, percent, line1, line2):
-      raise RuntimeError(lucky_cancel_token)
-    _check_search_timeout()
-
-  def _attempt_download(required_tiers, fallback_to_top, percent, status_label, delay_seconds):
-    def _progress_line(message):
-      _step(percent, status_label, message)
-
-    result = _download_best_result_for_language(
-      video_dir,
-      video_basename,
-      slot['code'],
-      language_label=slot['label'],
-      required_tiers=required_tiers,
-      fallback_to_top=fallback_to_top,
-      notify_errors=False,
-      max_write_attempts=8,
-      request_delay_seconds=delay_seconds,
-      max_provider_attempts=2,
-      retry_delay_seconds=0.95,
-      progress_callback=_progress_line,
-      progress_label=slot['label'],
-      deadline_at=search_phase_deadline_at
-    )
-    path = result.get('path')
-    if not path:
-      return False
-    slot['path'] = path
-    selected_result = result.get('result') or {}
-    sync_tier = _as_text(selected_result.get('sync_tier', 'unknown')).lower()
-    if sync_tier not in ['exact', 'likely', 'unknown']:
-      sync_tier = 'unknown'
-    slot['origin'] = 'download_%s' % (sync_tier)
-    slot['last_release'] = _as_text(selected_result.get('release_name', '')).strip()
-    slot['last_tier'] = sync_tier
-    return True
-
-  try:
-    _step(4, __language__(33236), __language__(33251))
-
-    auto_match = _auto_match_subtitles(video_dir, video_basename, target_slots=[slot])
-    exact_local = (auto_match.get('matched_slots') or {}).get(slot.get('slot'))
-    if exact_local:
-      slot['path'] = exact_local
-      slot['origin'] = 'local_exact'
-      _status('%s: local subtitle found (%s).' % (slot['label'], os.path.basename(exact_local)))
-      _step(12, __language__(33236), '%s local match: %s' % (slot['label'], os.path.basename(exact_local)))
-
-    download_request_delay_seconds = 0.0
-    if not slot.get('path') and _is_lucky_download_enabled():
-      status_line = __language__(33258) % (slot['label'])
-      _step(18, status_line)
-      downloaded = _attempt_download(
-        required_tiers=['exact', 'likely'],
-        fallback_to_top=False,
-        percent=26,
-        status_label=status_line,
-        delay_seconds=download_request_delay_seconds
-      )
-      download_request_delay_seconds = 1.15
-      if downloaded:
-        release_name = _as_text(slot.get('last_release', '')).strip() or os.path.basename(_as_text(slot.get('path', '')))
-        tier_text = _as_text(slot.get('last_tier', 'unknown')).upper()
-        _status('%s: downloaded %s candidate (%s).' % (slot['label'], tier_text, release_name))
-        _step(34, __language__(33242) % (slot['label']), '%s [%s]' % (release_name, tier_text))
-
-    english_reference_path = ''
-    english_reference_tier = ''
-    rejected_english_reference_path = ''
-    needs_english_reference = not slot.get('path')
-
-    if needs_english_reference:
-      _step(42, __language__(33261))
-
-      def _english_progress(message):
-        _step(46, __language__(33261), message)
-
-      english_reference = _find_lucky_english_reference(
-        video_dir,
-        video_basename,
-        request_delay_seconds=download_request_delay_seconds,
-        allow_unknown_download=False,
-        allow_unknown_local=False,
-        progress_callback=_english_progress,
-        deadline_at=search_phase_deadline_at
-      )
-      english_reference_path = english_reference.get('path')
-      english_reference_tier = _as_text(english_reference.get('tier', '')).lower()
-
-      if english_reference_path:
-        _status('English reference found (%s).' % (_as_text(english_reference_tier or 'likely').upper()))
-        _step(52, __language__(33245) % (_as_text(english_reference_tier or 'likely').upper()))
-      else:
-        _status('No reliable English reference found.')
-        _step(52, __language__(33246))
-
-    # NOTE: Redundant second download attempt removed — same tiers/params as
-    # the first attempt would not yield new results.
-
-    can_use_reference_for_sync = english_reference_tier in ['exact', 'likely']
-    should_test_english_reference = False
-    if english_reference_path and _is_lucky_prompt_english_test_enabled() and _is_lucky_strict_english_preview_enabled():
-      try:
-        prompt_message = '%s[CR][CR]%s' % (__language__(33249), __language__(33250))
-        should_test_english_reference = __msg_box__.yesno(__language__(33230), prompt_message)
-      except Exception:
-        should_test_english_reference = False
-
-    if should_test_english_reference and english_reference_path and can_use_reference_for_sync:
-      _close_progress(progress)
-      progress = None
-      preview_result = _run_lucky_english_sync_preview(english_reference_path)
-      if preview_result.get('started'):
-        english_preview_tested = True
-        _focus_video_for_lucky_preview(preview_result.get('state'))
-        _log('lucky single english preview started: reference=%s' % (english_reference_path), LOG_INFO)
-        _let_lucky_preview_play(5000)
-        preview_selection = 'cancel'
-        try:
-          preview_selection = _show_lucky_english_preview_dialog(english_reference_path)
-        finally:
-          try:
-            _restore_lucky_preview_state(preview_result.get('state'))
-            _log('lucky single english preview restore complete', LOG_INFO)
-          except Exception:
-            pass
-
-        if preview_selection == 'cancel':
-          raise RuntimeError(lucky_cancel_token)
-
-        if preview_selection == 'sync':
-          english_preview_confirmed_sync = True
-        else:
-          rejected_english_reference_path = english_reference_path
-          english_reference_path = ''
-          english_reference_tier = ''
-          can_use_reference_for_sync = False
-          _log('lucky single english reference rejected by user after preview', LOG_INFO)
-          _status('English preview marked as not in sync; reference was rejected.')
-          _step(68, __language__(33264), __language__(33270))
-      progress = _create_lucky_progress()
-      paused_now = _pause_lucky_background_playback()
-      if paused_now:
-        _status('Playback paused after English preview.')
-        _step(68, __language__(33264), 'Playback paused for Lucky processing')
-      else:
-        _step(68, __language__(33264))
-
-    if _is_lucky_smartsync_enabled() and english_reference_path and can_use_reference_for_sync:
-      slot_path = slot.get('path')
-      if slot_path and slot_path.lower() != english_reference_path.lower():
-        _step(72, __language__(33262) % (slot['label']))
-        force_sync_apply = bool(english_preview_confirmed_sync)
-        sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, slot_path, force_apply=force_sync_apply)
-        if sync_apply.get('applied'):
-          slot['path'] = sync_apply.get('path') or slot_path
-          slot['origin'] = 'smartsync'
-          smartsync_applied_any = True
-          for temp_path in sync_apply.get('temp_paths', []):
-            smart_sync_temp_files.append(temp_path)
-          _status('%s: SmartSync applied using English reference.' % (slot['label']))
-          _step(78, __language__(33244) % (slot['label']), 'SmartSync applied')
-        else:
-          _status('%s: SmartSync skipped (already close enough / no mismatch detected).' % (slot['label']))
-          _step(78, __language__(33262) % (slot['label']), 'SmartSync skipped: no clear mismatch')
-
-    unknown_candidates = []
-    if not slot.get('path') and _is_lucky_download_enabled():
-      unknown_candidates = _collect_lucky_unknown_candidates(
-        video_dir,
-        video_basename,
-        slot.get('code', ''),
-        max_candidates=3,
-        deadline_at=search_phase_deadline_at
-      )
-      _log(
-        'lucky single unknown fallback candidates: language=%s count=%d'
-        % (slot.get('code', ''), len(unknown_candidates)),
-        LOG_INFO
-      )
-
-    # Disable search-phase timeout before AI translation — translation can
-    # legitimately take several minutes for long subtitle files.
-    search_phase_timeout_active = False
-
-    if not slot.get('path') and _is_lucky_ai_translate_enabled() and len(unknown_candidates) == 0:
-      def _translation_progress(message):
-        _step(84, __language__(33260), message)
-
-      _run_lucky_translate_missing_slots(
-        [slot],
-        video_dir,
-        video_basename,
-        english_reference_path,
-        exclude_source_paths=[rejected_english_reference_path] if rejected_english_reference_path else None,
-        require_english_source=True,
-        notify=False,
-        progress_callback=_translation_progress
-      )
-      if slot.get('path') and _as_text(slot.get('origin', '')).lower() == 'translated':
-        _status('%s: generated via AI translation from English reference.' % (slot['label']))
-
-    if not slot.get('path') and _is_lucky_download_enabled() and len(unknown_candidates) > 0:
-      _step(88, __language__(33300) % (slot['label']))
-      _close_progress(progress)
-      progress = None
-
-      picker_outcome = ''
-      risky_candidate = _prompt_lucky_unknown_candidate(
-        slot.get('label', slot.get('code', '')),
-        unknown_candidates,
-        video_basename
-      )
-      if risky_candidate:
-        progress = _create_lucky_progress()
-        _step(89, __language__(33265), 'Downloading selected %s subtitle...' % (slot['label']))
-        risky_path = _download_lucky_selected_candidate(
-          video_dir, video_basename, slot, risky_candidate, deadline_at=search_phase_deadline_at
-        )
-        if risky_path:
-          slot['path'] = risky_path
-          slot['origin'] = 'download_unknown_user'
-          _log(
-            'lucky single user-selected risky candidate: language=%s provider=%s release=%s reason=%s'
-            % (
-              slot.get('code', ''),
-              _as_text(risky_candidate.get('provider', 'provider')),
-              _as_text(risky_candidate.get('release_name', 'subtitle')),
-              _as_text(risky_candidate.get('risk_reason', __language__(33284)))
-            ),
-            LOG_WARNING
-          )
-          picker_outcome = 'Selected risky candidate: %s (%s)' % (
-            _as_text(risky_candidate.get('release_name', 'subtitle')),
-            _as_text(risky_candidate.get('provider', 'provider'))
-          )
-          _status('%s: %s' % (slot['label'], picker_outcome))
-          _step(90, __language__(33265), 'Downloaded selected %s subtitle.' % (slot['label']))
-          if _is_lucky_smartsync_enabled() and english_reference_path and can_use_reference_for_sync and risky_path.lower() != english_reference_path.lower():
-            _step(91, __language__(33262) % (slot['label']), 'Running SmartSync for %s...' % (slot['label']))
-            sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, risky_path, force_apply=True)
-            if sync_apply.get('applied'):
-              slot['path'] = sync_apply.get('path') or risky_path
-              slot['origin'] = 'smartsync'
-              smartsync_applied_any = True
-              for temp_path in sync_apply.get('temp_paths', []):
-                smart_sync_temp_files.append(temp_path)
-              picker_outcome = '%s | SmartSync applied' % (picker_outcome)
-              _status('%s: SmartSync applied after risky selection.' % (slot['label']))
-              _step(92, __language__(33244) % (slot['label']), 'SmartSync applied')
-            else:
-              picker_outcome = '%s | SmartSync skipped' % (picker_outcome)
-              _status('%s: SmartSync skipped after risky selection.' % (slot['label']))
-              _step(92, __language__(33262) % (slot['label']), 'SmartSync skipped')
-        else:
-          picker_outcome = __language__(33301) % (slot['label'])
-          _status(picker_outcome)
-          progress = _create_lucky_progress()
-          _step(90, __language__(33265), picker_outcome)
-      else:
-        _log('lucky single user skipped risky candidates for %s' % (slot.get('code', 'target')), LOG_WARNING)
-        picker_outcome = __language__(33303) % (slot['label'])
-        _status(picker_outcome)
-        progress = _create_lucky_progress()
-        _step(90, __language__(33265), picker_outcome)
-
-    _step(94, __language__(33265))
-    subtitle1 = slot.get('path')
-
-    if not subtitle1:
-      _log('i feel lucky single stop: missing=%s' % (slot.get('label', slot.get('code', 'target'))), LOG_WARNING)
-      _notify_lucky_missing_language_subtitles(slot.get('label', slot.get('code', 'target')))
-      _close_progress(progress)
-      progress = None
-      missing_message = __language__(33281) % (slot.get('label', slot.get('code', 'target')))
-      _status(missing_message)
-      _show_lucky_center_summary(
-        __language__(33230),
-        _build_lucky_single_result_summary(
-          slot,
-          english_preview_tested=english_preview_tested,
-          english_preview_in_sync=english_preview_confirmed_sync,
-          smartsync_applied=smartsync_applied_any,
-          overall_success=False
-        )
-      )
-      _offer_lucky_recovery_actions(slot.get('label', slot.get('code', 'target')))
-      _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
-      return
-
-    _step(100, __language__(33282))
-    subtitle1_dir = os.path.dirname(subtitle1) if subtitle1 else video_dir
-    finalized = _finalize_selected_subtitle_paths(
-      subtitle1,
-      None,
-      subtitle1_dir=subtitle1_dir,
-      smart_sync_temp_files=smart_sync_temp_files,
-      show_notifications=False,
-      register_download_item=True
-    )
-
-    if finalized:
-      done_message = __language__(33280) % (slot.get('label', slot.get('code', 'target')))
-      _status(done_message)
-      _close_progress(progress)
-      progress = None
-      _show_lucky_center_summary(
-        __language__(33230),
-        _build_lucky_single_result_summary(
-          slot,
-          english_preview_tested=english_preview_tested,
-          english_preview_in_sync=english_preview_confirmed_sync,
-          smartsync_applied=smartsync_applied_any,
-          overall_success=True
-        )
-      )
-    else:
-      _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
-      fail_message = __language__(33241)
-      _status(fail_message)
-      _close_progress(progress)
-      progress = None
-      _show_lucky_center_summary(
-        __language__(33230),
-        _build_lucky_single_result_summary(
-          slot,
-          english_preview_tested=english_preview_tested,
-          english_preview_in_sync=english_preview_confirmed_sync,
-          smartsync_applied=smartsync_applied_any,
-          overall_success=False
-        )
-      )
-  except RuntimeError as exc:
-    exc_text = _as_text(exc)
-    if exc_text == lucky_cancel_token:
-      _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
-      _cleanup_lucky_downloaded_files([slot])
-      _show_lucky_center_summary(
-        __language__(33230),
-        _build_lucky_single_result_summary(
-          slot,
-          english_preview_tested=english_preview_tested,
-          english_preview_in_sync=english_preview_confirmed_sync,
-          smartsync_applied=smartsync_applied_any,
-          overall_success=False
-        )
-      )
-      return
-    if exc_text == lucky_timeout_token:
-      _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
-      _cleanup_lucky_downloaded_files([slot])
-      _log('i feel lucky single search phase timed out after %d seconds' % (search_phase_timeout_seconds), LOG_WARNING)
-      _status('Search timed out after %d seconds.' % (search_phase_timeout_seconds))
-      _close_progress(progress)
-      _show_lucky_center_summary(
-        __language__(33230),
-        _build_lucky_single_result_summary(
-          slot,
-          english_preview_tested=english_preview_tested,
-          english_preview_in_sync=english_preview_confirmed_sync,
-          smartsync_applied=smartsync_applied_any,
-          overall_success=False
-        )
-      )
-      return
-    _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
-    _cleanup_lucky_downloaded_files([slot])
-    _log('i feel lucky single runtime error: %s' % (exc), LOG_WARNING)
-    _show_lucky_center_summary(
-      __language__(33230),
-      _build_lucky_single_result_summary(
-        slot,
-        english_preview_tested=english_preview_tested,
-        english_preview_in_sync=english_preview_confirmed_sync,
-        smartsync_applied=smartsync_applied_any,
-        overall_success=False
-      )
-    )
-  except Exception as exc:
-    _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
-    _cleanup_lucky_downloaded_files([slot])
-    _log('i feel lucky single unexpected error: %s' % (exc), LOG_ERROR)
-    _show_lucky_center_summary(
-      __language__(33230),
-      _build_lucky_single_result_summary(
-        slot,
-        english_preview_tested=english_preview_tested,
-        english_preview_in_sync=english_preview_confirmed_sync,
-        smartsync_applied=smartsync_applied_any,
-        overall_success=False
-      )
-    )
-  finally:
-    LUCKY_FLOW_ACTIVE = False
-    _close_progress(progress)
-
-def _run_i_feel_lucky_flow():
-  global LUCKY_FLOW_ACTIVE
-  LUCKY_FLOW_ACTIVE = True
-  video_dir, video_basename = _current_video_context()
-  if not video_dir or not video_basename:
-    _show_lucky_center_summary(__language__(33230), [__language__(33175)])
-    return
-
-  slots = _build_lucky_target_slots()
-  if len(slots) != 2:
-    # Graceful fallback: if only one preferred language is configured, run the
-    # single-subtitle flow instead of showing an error.
-    single_slot = _build_lucky_single_target_slot()
-    if single_slot and single_slot.get('code'):
-      _log('i feel lucky dual: only 1 language configured, falling back to single flow', LOG_INFO)
-      _run_i_feel_lucky_single_flow()
-      return
+  if len(slots) not in (1, 2):
     _show_lucky_center_summary(__language__(33230), [__language__(33240)])
     return
 
@@ -6748,15 +6320,23 @@ def _run_i_feel_lucky_flow():
   try:
     _step(4, __language__(33236), __language__(33251))
 
-    automatch = _auto_match_subtitles(video_dir, video_basename)
-    if automatch.get('subtitle1'):
-      slots[0]['path'] = automatch.get('subtitle1')
-      slots[0]['origin'] = 'local_exact'
-      _status('%s: local subtitle found (%s).' % (slots[0]['label'], os.path.basename(automatch.get('subtitle1'))))
-    if automatch.get('subtitle2'):
-      slots[1]['path'] = automatch.get('subtitle2')
-      slots[1]['origin'] = 'local_exact'
-      _status('%s: local subtitle found (%s).' % (slots[1]['label'], os.path.basename(automatch.get('subtitle2'))))
+    if len(slots) == 1:
+      automatch = _auto_match_subtitles(video_dir, video_basename, target_slots=slots)
+      local_path = (automatch.get('matched_slots') or {}).get(slots[0].get('slot'))
+      if local_path:
+        slots[0]['path'] = local_path
+        slots[0]['origin'] = 'local_exact'
+        _status('%s: local subtitle found (%s).' % (slots[0]['label'], os.path.basename(local_path)))
+    else:
+      automatch = _auto_match_subtitles(video_dir, video_basename)
+      if automatch.get('subtitle1'):
+        slots[0]['path'] = automatch.get('subtitle1')
+        slots[0]['origin'] = 'local_exact'
+        _status('%s: local subtitle found (%s).' % (slots[0]['label'], os.path.basename(automatch.get('subtitle1'))))
+      if automatch.get('subtitle2'):
+        slots[1]['path'] = automatch.get('subtitle2')
+        slots[1]['origin'] = 'local_exact'
+        _status('%s: local subtitle found (%s).' % (slots[1]['label'], os.path.basename(automatch.get('subtitle2'))))
 
     download_request_delay_seconds = 0.0
     if _is_lucky_download_enabled():
@@ -7003,14 +6583,14 @@ def _run_i_feel_lucky_flow():
 
     _step(94, __language__(33265))
     subtitle1 = slots[0].get('path')
-    subtitle2 = slots[1].get('path')
+    subtitle2 = slots[1].get('path') if len(slots) > 1 else None
 
-    if not subtitle1 or not subtitle2:
+    if not subtitle1 or (len(slots) > 1 and not subtitle2):
       missing_labels = []
       if not subtitle1:
         missing_labels.append(slots[0].get('label', slots[0].get('code', '')))
         _notify_lucky_missing_language_subtitles(slots[0].get('label', slots[0].get('code', '')))
-      if not subtitle2:
+      if len(slots) > 1 and not subtitle2:
         missing_labels.append(slots[1].get('label', slots[1].get('code', '')))
         _notify_lucky_missing_language_subtitles(slots[1].get('label', slots[1].get('code', '')))
       missing_text = ', '.join([label for label in missing_labels if label]).strip()
@@ -7019,7 +6599,7 @@ def _run_i_feel_lucky_flow():
       _log('i feel lucky strict mode stop: missing=%s' % (missing_text), LOG_WARNING)
       _close_progress(progress)
       progress = None
-      missing_message = __language__(33267) % (missing_text)
+      missing_message = (__language__(33281) % (missing_text)) if len(slots) == 1 else (__language__(33267) % (missing_text))
       _status(missing_message)
       _show_lucky_center_summary(
         __language__(33230),
@@ -7035,19 +6615,14 @@ def _run_i_feel_lucky_flow():
       _cleanup_lucky_temp_sync_files(smart_sync_temp_files)
       return
 
-    _step(100, __language__(33266))
-    subtitle1_dir = os.path.dirname(subtitle1) if subtitle1 else video_dir
-    finalized = _finalize_selected_subtitle_paths(
-      subtitle1,
-      subtitle2,
-      subtitle1_dir=subtitle1_dir,
-      smart_sync_temp_files=smart_sync_temp_files,
-      show_notifications=False,
-      register_download_item=True
-    )
+    _step(100, __language__(33282) if len(slots) == 1 else __language__(33266))
+    if len(slots) == 1:
+      finalized = _finalize_lucky_single_display(subtitle1, video_dir, smart_sync_temp_files)
+    else:
+      finalized = _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_temp_files)
 
     if finalized:
-      _status(__language__(33238))
+      _status((__language__(33280) % (_lucky_slot_label(slots[0]))) if len(slots) == 1 else __language__(33238))
       _close_progress(progress)
       progress = None
       _show_lucky_center_summary(
@@ -7138,6 +6713,25 @@ def _run_i_feel_lucky_flow():
   finally:
     LUCKY_FLOW_ACTIVE = False
     _close_progress(progress)
+
+def _run_i_feel_lucky_single_flow():
+  slot = _build_lucky_single_target_slot()
+  if not slot:
+    _show_lucky_center_summary(__language__(33230), [__language__(33279)])
+    return
+  _run_lucky_acquisition([slot])
+
+def _run_i_feel_lucky_flow():
+  slots = _build_lucky_target_slots()
+  if len(slots) == 2:
+    _run_lucky_acquisition(slots)
+    return
+  single_slot = _build_lucky_single_target_slot()
+  if single_slot and single_slot.get('code'):
+    _log('i feel lucky dual: only 1 language configured, falling back to single flow', LOG_INFO)
+    _run_lucky_acquisition([single_slot])
+    return
+  _show_lucky_center_summary(__language__(33230), [__language__(33240)])
 
 def _run_dual_subtitle_flow():
   video_dir, video_basename = _current_video_context()
