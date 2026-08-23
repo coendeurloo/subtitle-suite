@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.9.14 — Unreleased
+
+- Single Lucky now activates its acquired subtitle directly; only Dual Lucky uses the existing ASS merge path.
+
 ## 2.9.13 — Unreleased
 
 - Routed Single and Dual Lucky through one target-slot acquisition pipeline; their final single/dual presentation paths remain separate.

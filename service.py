@@ -6211,15 +6211,16 @@ def _cleanup_lucky_downloaded_files(slots):
 
 def _finalize_lucky_single_display(subtitle_path, video_dir, smart_sync_temp_files):
   """Activate one acquired subtitle; kept separate from dual presentation."""
-  subtitle_dir = os.path.dirname(subtitle_path) if subtitle_path else video_dir
-  return _finalize_selected_subtitle_paths(
-    subtitle_path,
-    None,
-    subtitle1_dir=subtitle_dir,
-    smart_sync_temp_files=smart_sync_temp_files,
-    show_notifications=False,
-    register_download_item=True
-  )
+  if not subtitle_path:
+    return False
+  _remember_last_used_dir(os.path.dirname(subtitle_path) or video_dir)
+  Download(subtitle_path)
+  if not _apply_subtitle_to_player_now(subtitle_path):
+    xbmc.sleep(250)
+    _apply_subtitle_to_player_now(subtitle_path)
+  # A playback-only SmartSync target may itself be a temporary file. Keep it
+  # alive for Kodi instead of deleting it as the dual merge path does.
+  return True
 
 def _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_temp_files):
   """Merge and activate two acquired subtitles; dualsubs remains untouched."""
