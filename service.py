@@ -1139,11 +1139,6 @@ def _is_lucky_allow_english_likely():
 def _is_lucky_ai_translate_enabled():
   return _get_bool_setting('lucky_enable_ai_translate', True)
 
-def _is_lucky_continue_on_partial():
-  # Legacy setting kept for backward compatibility in stored settings.
-  # I Feel Lucky flow is now strict 2-target and no longer uses this toggle.
-  return _get_bool_setting('lucky_continue_on_partial', True)
-
 def _is_lucky_prompt_english_test_enabled():
   return _get_bool_setting('lucky_prompt_english_test', True)
 

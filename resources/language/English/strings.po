@@ -15,7 +15,7 @@ msgstr ""
 #English
 
 msgctxt "#33004"
-msgid "Choose Dual Subtitles..."
+msgid "Choose Two Subtitle Files..."
 msgstr ""
 
 msgctxt "#33005"
@@ -31,7 +31,7 @@ msgid "This zip file does not contain a supported subtitle file."
 msgstr ""
 
 msgctxt "#33008"
-msgid "Settings..."
+msgid "Add-on Settings..."
 msgstr ""
 
 msgctxt "#33009"
@@ -39,11 +39,11 @@ msgid "(Press Cancel for no second subtitle)"
 msgstr ""
 
 msgctxt "#33012"
-msgid "First language"
+msgid "First subtitle language"
 msgstr ""
 
 msgctxt "#33013"
-msgid "Second language"
+msgid "Second subtitle language"
 msgstr ""
 
 msgctxt "#33014"
@@ -167,27 +167,27 @@ msgid "Single subtitle loaded."
 msgstr ""
 
 msgctxt "#33046"
-msgid "Languages"
+msgid "Your subtitle languages"
 msgstr ""
 
 msgctxt "#33047"
-msgid "When Subtitles Are Missing"
+msgid "If subtitles are missing"
 msgstr ""
 
 msgctxt "#33048"
-msgid "Subtitle Position"
+msgid "Subtitle position on screen"
 msgstr ""
 
 msgctxt "#33049"
-msgid "Timing"
+msgid "Subtitle timing"
 msgstr ""
 
 msgctxt "#33050"
-msgid "Bottom Subtitle Look"
+msgid "Bottom subtitle appearance"
 msgstr ""
 
 msgctxt "#33051"
-msgid "Top Subtitle Look"
+msgid "Top subtitle appearance"
 msgstr ""
 
 msgctxt "#33052"
@@ -215,7 +215,7 @@ msgid "Choose the languages you want subtitles in.\nSet both for dual subtitles,
 msgstr ""
 
 msgctxt "#33058"
-msgid "AI Translation"
+msgid "AI translation (optional)"
 msgstr ""
 
 msgctxt "#33059"
@@ -267,11 +267,11 @@ msgid "AI translation failed at block %d. The original subtitle was kept."
 msgstr ""
 
 msgctxt "#33310"
-msgid "Always check English reference timing in Lucky"
+msgid "Always check English timing first"
 msgstr ""
 
 msgctxt "#33311"
-msgid "Correct common subtitle frame-rate differences"
+msgid "Fix common video-speed differences (25 fps / 24 fps)"
 msgstr ""
 
 msgctxt "#33073"
@@ -435,11 +435,11 @@ msgid "Could not save the fixed subtitle. Using it for this playback only."
 msgstr ""
 
 msgctxt "#33120"
-msgid "Smart Sync Subtitles (Manual)..."
+msgid "Fix Subtitle Timing (Manual)..."
 msgstr ""
 
 msgctxt "#33121"
-msgid "Translate Subtitle (manual)..."
+msgid "Translate Subtitle (Manual)..."
 msgstr ""
 
 msgctxt "#33122"
@@ -543,7 +543,7 @@ msgid "Only when I choose to"
 msgstr ""
 
 msgctxt "#33150"
-msgid "Restore Subtitle Backup..."
+msgid "Restore Previous Subtitle..."
 msgstr ""
 
 msgctxt "#33151"
@@ -591,11 +591,11 @@ msgid "Using fixed subtitle for this playback only."
 msgstr ""
 
 msgctxt "#33162"
-msgid "Search & Download Subtitles..."
+msgid "Find & Download Subtitles..."
 msgstr ""
 
 msgctxt "#33163"
-msgid "Subtitle Sources"
+msgid "Where subtitles come from"
 msgstr ""
 
 msgctxt "#33164"
@@ -623,7 +623,7 @@ msgid "OpenSubtitles API key"
 msgstr ""
 
 msgctxt "#33170"
-msgid "Maximum search results per language"
+msgid "How many subtitle results to show"
 msgstr ""
 
 msgctxt "#33171"
@@ -779,15 +779,15 @@ msgid "I Feel Lucky"
 msgstr ""
 
 msgctxt "#33274"
-msgid "I Feel Lucky (Single Subtitle)..."
+msgid "I Feel Lucky: One Subtitle..."
 msgstr ""
 
 msgctxt "#33275"
-msgid "I Feel Lucky (Dual Subtitles)..."
+msgid "I Feel Lucky: Two Subtitles..."
 msgstr ""
 
 msgctxt "#33276"
-msgid "Single subtitle language"
+msgid "Language for One Subtitle mode"
 msgstr ""
 
 msgctxt "#33277"
@@ -795,23 +795,23 @@ msgid "Single subtitle mode"
 msgstr ""
 
 msgctxt "#33278"
-msgid "Used by 'I Feel Lucky (Single Subtitle)'.\nIf not set, it uses your first language instead."
+msgid "Choose the language for 'I Feel Lucky: One Subtitle'.\nDisabled means: use your first subtitle language above."
 msgstr ""
 
 msgctxt "#33231"
-msgid "Auto-download missing subtitles"
+msgid "Find and download missing subtitles"
 msgstr ""
 
 msgctxt "#33232"
-msgid "Auto-fix timing using English reference"
+msgid "Fix timing automatically using English subtitles"
 msgstr ""
 
 msgctxt "#33233"
-msgid "Allow likely English reference"
+msgid "Use a close English match for timing"
 msgstr ""
 
 msgctxt "#33234"
-msgid "Auto-translate missing subtitles with AI"
+msgid "Create a missing subtitle with AI"
 msgstr ""
 
 msgctxt "#33235"
@@ -887,7 +887,7 @@ msgid "I Feel Lucky cancelled."
 msgstr ""
 
 msgctxt "#33257"
-msgid "Ask to check English subtitle timing"
+msgid "Ask before checking English subtitle timing"
 msgstr ""
 
 msgctxt "#33258"

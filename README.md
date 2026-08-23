@@ -19,14 +19,14 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 
 ## Main Menu Actions
 
-- `Search & Download Subtitles...`
-- `I Feel Lucky (Single Subtitle)...`
-- `I Feel Lucky (Dual Subtitles)...`
-- `Choose Dual Subtitles...`
-- `Smart Sync Subtitles (Manual)...`
-- `Translate Subtitle (manual)...`
-- `Restore Subtitle Backup...`
-- `Addon Settings...`
+- `Find & Download Subtitles...`
+- `I Feel Lucky: One Subtitle...`
+- `I Feel Lucky: Two Subtitles...`
+- `Choose Two Subtitle Files...`
+- `Fix Subtitle Timing (Manual)...`
+- `Translate Subtitle (Manual)...`
+- `Restore Previous Subtitle...`
+- `Add-on Settings...`
 
 ## How Lucky Works
 
@@ -111,8 +111,8 @@ AI translation is optional and manual key-based.
 
 ## Settings (Quick View)
 
-- Preferred languages (`Preferred Language 1`, `Preferred Language 2`).
-- Single-mode Lucky target language.
+- Your subtitle languages: choose the first and second languages you normally want.
+- Language for One Subtitle mode: used only by `I Feel Lucky: One Subtitle`. Leave it disabled to use your first subtitle language.
 - Downloader provider toggles and credentials/API keys.
 - Lucky behavior toggles (download, SmartSync, AI fallback, English preview).
 - SmartSync and timing controls.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.9.16 — Unreleased
+
+### Clearer settings
+
+- Removed the unused legacy Lucky setting that some Kodi versions displayed as an untitled setting row.
+- Reworded setting categories and Lucky options in plain language, including an explanation that a disabled One Subtitle language uses the first subtitle language.
+
 ## 2.9.15 — Unreleased
 
 - Added conservative, sampled frame-rate ratio detection before local SmartSync alignment, with an opt-out setting enabled by default.
