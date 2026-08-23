@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.9.10 — Unreleased
+
+- Made the 90-second Lucky search budget propagate to English-reference and risky-candidate searches/downloads, in addition to trusted candidate searches.
+- Documented and regression-tested the shared one-language/two-language Lucky decision order.
+
 ## 2.9.9 — Unreleased
 
 - Reused one action-scoped video context for playback metadata, file hashing, directory listings, filename language detection, subtitle samples, and provider searches.

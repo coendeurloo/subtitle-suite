@@ -64,6 +64,7 @@ from resources.lib.languages import (
   KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
 )
 from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
+from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import translate_block_with_one_retry
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
@@ -4546,11 +4547,12 @@ def _build_unknown_match_risk_reason(video_basename, result):
     return __language__(33293)
   return __language__(33284)
 
-def _collect_lucky_unknown_candidates(video_dir, video_basename, language_code, max_candidates=3):
+def _collect_lucky_unknown_candidates(video_dir, video_basename, language_code, max_candidates=3, deadline_at=None):
   if not video_dir or not video_basename or not language_code:
     return []
 
   context = _build_download_context(video_dir, video_basename)
+  context['deadline_at'] = deadline_at
   normalized_language = _canonicalize_language_code(language_code) or _as_text(language_code).lower().strip()
   if not normalized_language:
     return []
@@ -4558,6 +4560,8 @@ def _collect_lucky_unknown_candidates(video_dir, video_basename, language_code, 
   try:
     results = _search_download_results(context, normalized_language)
   except RuntimeError as exc:
+    if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
+      raise
     _log('lucky unknown candidate search failed for %s: %s' % (normalized_language, exc), LOG_WARNING)
     return []
   except Exception as exc:
@@ -4635,16 +4639,31 @@ def _prompt_lucky_unknown_candidate(slot_label, candidates, video_basename=''):
     return None
   return enriched[selected_index]
 
-def _download_lucky_selected_candidate(video_dir, video_basename, slot, selected_candidate):
+def _download_lucky_selected_candidate(video_dir, video_basename, slot, selected_candidate, deadline_at=None):
   if not selected_candidate:
     return ''
   context = _build_download_context(video_dir, video_basename)
+  context['deadline_at'] = deadline_at
   language_code = _canonicalize_language_code(slot.get('code', ''))
   if not language_code:
     return ''
   try:
     target_path = _write_download_payload_to_target(context, language_code, selected_candidate)
     return target_path
+  except RuntimeError as exc:
+    if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
+      raise
+    _log(
+      'lucky risky candidate download failed: language=%s release=%s provider=%s error=%s'
+      % (
+        language_code,
+        _as_text(selected_candidate.get('release_name', 'subtitle')),
+        _as_text(selected_candidate.get('provider', 'provider')),
+        exc
+      ),
+      LOG_WARNING
+    )
+    return ''
   except Exception as exc:
     _log(
       'lucky risky candidate download failed: language=%s release=%s provider=%s error=%s'
@@ -4679,7 +4698,8 @@ def _find_lucky_english_reference(
   request_delay_seconds=0.0,
   allow_unknown_download=False,
   allow_unknown_local=False,
-  progress_callback=None
+  progress_callback=None,
+  deadline_at=None
 ):
   result = {
     'path': '',
@@ -4723,6 +4743,7 @@ def _find_lucky_english_reference(
       request_delay_seconds=request_delay_seconds,
       max_provider_attempts=2,
       retry_delay_seconds=0.95,
+      deadline_at=deadline_at,
       progress_callback=progress_callback,
       progress_label='English reference'
     )
@@ -6067,10 +6088,12 @@ def _run_i_feel_lucky_single_flow():
   english_preview_tested = False
   smartsync_applied_any = False
   status_lines = []
-  search_phase_start = time.monotonic()
   search_phase_timeout_seconds = 90
-  search_phase_deadline_at = search_phase_start + search_phase_timeout_seconds
+  search_deadline = LuckyDeadline(search_phase_timeout_seconds)
+  search_phase_start = search_deadline.started_at
+  search_phase_deadline_at = search_deadline.deadline_at
   search_phase_timeout_active = True
+  _log('lucky pipeline plan: %s' % (lucky_decision_steps([slot.get('code', '')]),), LOG_DEBUG)
 
   def _status(line):
     text = _as_text(line).strip()
@@ -6171,7 +6194,8 @@ def _run_i_feel_lucky_single_flow():
         request_delay_seconds=download_request_delay_seconds,
         allow_unknown_download=False,
         allow_unknown_local=False,
-        progress_callback=_english_progress
+        progress_callback=_english_progress,
+        deadline_at=search_phase_deadline_at
       )
       english_reference_path = english_reference.get('path')
       english_reference_tier = _as_text(english_reference.get('tier', '')).lower()
@@ -6259,7 +6283,8 @@ def _run_i_feel_lucky_single_flow():
         video_dir,
         video_basename,
         slot.get('code', ''),
-        max_candidates=3
+        max_candidates=3,
+        deadline_at=search_phase_deadline_at
       )
       _log(
         'lucky single unknown fallback candidates: language=%s count=%d'
@@ -6302,7 +6327,9 @@ def _run_i_feel_lucky_single_flow():
       if risky_candidate:
         progress = _create_lucky_progress()
         _step(89, __language__(33265), 'Downloading selected %s subtitle...' % (slot['label']))
-        risky_path = _download_lucky_selected_candidate(video_dir, video_basename, slot, risky_candidate)
+        risky_path = _download_lucky_selected_candidate(
+          video_dir, video_basename, slot, risky_candidate, deadline_at=search_phase_deadline_at
+        )
         if risky_path:
           slot['path'] = risky_path
           slot['origin'] = 'download_unknown_user'
@@ -6511,10 +6538,12 @@ def _run_i_feel_lucky_flow():
   english_preview_tested = False
   smartsync_applied_any = False
   status_lines = []
-  search_phase_start = time.monotonic()
   search_phase_timeout_seconds = 90
-  search_phase_deadline_at = search_phase_start + search_phase_timeout_seconds
+  search_deadline = LuckyDeadline(search_phase_timeout_seconds)
+  search_phase_start = search_deadline.started_at
+  search_phase_deadline_at = search_deadline.deadline_at
   search_phase_timeout_active = True
+  _log('lucky pipeline plan: %s' % (lucky_decision_steps([slot.get('code', '') for slot in slots]),), LOG_DEBUG)
 
   def _status(line):
     text = _as_text(line).strip()
@@ -6620,7 +6649,8 @@ def _run_i_feel_lucky_flow():
         request_delay_seconds=download_request_delay_seconds,
         allow_unknown_download=False,
         allow_unknown_local=False,
-        progress_callback=_english_progress
+        progress_callback=_english_progress,
+        deadline_at=search_phase_deadline_at
       )
       english_reference_path = english_reference.get('path')
       english_reference_tier = _as_text(english_reference.get('tier', '')).lower()
@@ -6713,7 +6743,8 @@ def _run_i_feel_lucky_flow():
           video_dir,
           video_basename,
           missing_slot.get('code', ''),
-          max_candidates=3
+          max_candidates=3,
+          deadline_at=search_phase_deadline_at
         )
         unknown_candidates_by_slot[slot_key] = unknown_candidates
         _log(
@@ -6782,7 +6813,9 @@ def _run_i_feel_lucky_flow():
 
         progress = _create_lucky_progress()
         _step(89, __language__(33265), 'Downloading selected %s subtitle...' % (slot['label']))
-        risky_path = _download_lucky_selected_candidate(video_dir, video_basename, slot, risky_candidate)
+        risky_path = _download_lucky_selected_candidate(
+          video_dir, video_basename, slot, risky_candidate, deadline_at=search_phase_deadline_at
+        )
         if not risky_path:
           _status(__language__(33301) % (slot['label']))
           _step(90, __language__(33265), __language__(33301) % (slot['label']))

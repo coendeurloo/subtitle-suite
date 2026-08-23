@@ -48,6 +48,27 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 5. AI fallback from English for remaining missing language(s).
 6. If still unresolved, show **Top 3 risky candidates** per missing language.
 
+### Shared Lucky decision order
+
+The Lucky engine receives an explicit list of target languages.  A single
+subtitle action passes one language; a dual action passes two.  The decision
+order is deliberately the same:
+
+| Order | Single target | Dual targets |
+| --- | --- | --- |
+| 1 | Find a local match | Find local matches for both targets |
+| 2 | Download trusted `Exact`/`Likely` result | Download trusted `Exact`/`Likely` result for each missing target |
+| 3 | Find trusted English reference | Find one trusted English reference |
+| 4 | Offer English sync preview when applicable | Offer English sync preview when applicable |
+| 5 | SmartSync target to English reference | SmartSync each available target to English reference |
+| 6 | Offer AI translation for a still-missing target | Offer AI translation for each still-missing target |
+| 7 | Offer risky candidates only after explicit consent | Offer risky candidates per still-missing target only after explicit consent |
+| 8 | Finalize one subtitle | Finalize the two subtitles |
+
+The 90-second Lucky search budget is monotonic and is passed to each provider
+search and download as its remaining timeout.  AI translation remains a
+separate, explicitly confirmed step after the search phase.
+
 ## Safe No-Match Behavior
 
 Lucky does **not** silently pick bad unknown subtitles anymore.
