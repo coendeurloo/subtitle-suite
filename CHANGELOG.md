@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.9.17 — Unreleased
+
+### Kodi subtitle-menu reliability
+
+- Removed the non-subtitle Settings row from Kodi's subtitle-result list. Kodi tried to download that row after saving settings and showed a false "Subtitle download failed" notification.
+- Documented Kodi's built-in settings route for Subtitle Suite.
+
 ## 2.9.16 — Unreleased
 
 ### Clearer settings

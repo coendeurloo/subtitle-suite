@@ -278,7 +278,7 @@ def _get_last_used_main_action():
 def _remember_main_action(action):
   # The Kodi subtitle-search directory API has no portable focus/preselect
   # call.  Store the action and expose it as a list-item property for skins.
-  if action not in ('downloadmanual', 'ifeelluckysingle', 'ifeelluckydual', 'browsedual', 'smartsyncmanual', 'translatemanual', 'restorebackup', 'settings'):
+  if action not in ('downloadmanual', 'ifeelluckysingle', 'ifeelluckydual', 'browsedual', 'smartsyncmanual', 'translatemanual', 'restorebackup'):
     return
   try:
     __addon__.setSetting('last_used_main_action', action)
@@ -307,7 +307,6 @@ def Search():
     AddItem(__language__(33120), "plugin://%s/?action=smartsyncmanual" % (__scriptid__), 'smartsyncmanual')
     AddItem(__language__(33121), "plugin://%s/?action=translatemanual" % (__scriptid__), 'translatemanual')
     AddItem(__language__(33150), "plugin://%s/?action=restorebackup" % (__scriptid__), 'restorebackup')
-    AddItem(__language__(33008), "plugin://%s/?action=settings" % (__scriptid__), 'settings')
   finally:
     _log_timing('menu_build', menu_started_at)
 

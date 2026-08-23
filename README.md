@@ -26,7 +26,14 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 - `Fix Subtitle Timing (Manual)...`
 - `Translate Subtitle (Manual)...`
 - `Restore Previous Subtitle...`
-- `Add-on Settings...`
+
+### Opening settings
+
+The subtitle search window treats every result as a subtitle file. To avoid a
+misleading download-failed message, Subtitle Suite's settings are opened through
+Kodi itself: open the context menu on **Subtitle Suite** in the subtitle service
+list and choose **Settings**, or use **Add-ons** → **My add-ons** → **Subtitle
+services** → **Subtitle Suite** → **Configure**.
 
 ## How Lucky Works
 

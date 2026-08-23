@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.subtitlesuite"
        name="Subtitle Suite"
-       version="2.9.16"
+       version="2.9.17"
        provider-name="coendeurloo">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -21,6 +21,9 @@ The addon opens from the subtitle search screen and supports:
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
     <news>
+2.9.17 (unreleased)
+- Removed the Settings menu item that could show a false subtitle download failure
+
 2.9.16 (unreleased)
 - Clearer plain-language labels throughout the settings screen
 - Removed an unused legacy setting that Kodi could display as an untitled row
