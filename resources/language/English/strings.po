@@ -262,6 +262,10 @@ msgctxt "#33072"
 msgid "AI translation cancelled."
 msgstr ""
 
+msgctxt "#33309"
+msgid "AI translation failed at block %d. The original subtitle was kept."
+msgstr ""
+
 msgctxt "#33073"
 msgid "AI timeout (seconds)"
 msgstr ""

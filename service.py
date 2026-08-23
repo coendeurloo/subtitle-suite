@@ -73,6 +73,7 @@ from resources.lib.languages import (
   KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
 )
 from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
+from resources.lib.translation_validation import translate_block_with_one_retry
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
@@ -1139,21 +1140,6 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
   normalized = []
   for item in translations:
     normalized.append(_as_text(item))
-
-  if len(normalized) != len(lines):
-    if len(normalized) == 0:
-      raise RuntimeError('OpenAI returned 0 translations for %d lines.' % (len(lines)))
-    _log(
-      'openai translation count mismatch: got=%d expected=%d; applying safe fallback for missing/extra lines'
-      % (len(normalized), len(lines)),
-      LOG_WARNING
-    )
-    if len(normalized) > len(lines):
-      normalized = normalized[:len(lines)]
-    elif len(normalized) < len(lines):
-      # Keep flow stable: if model drops items, reuse source text for missing rows.
-      for index in range(len(normalized), len(lines)):
-        normalized.append(_as_text(lines[index]))
 
   return normalized
 
@@ -2454,14 +2440,32 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       for item in chunk_lines:
         request_lines.append(_as_text(item.text))
 
-      translated_lines = _openai_translate_lines(
-        request_lines,
-        source_language_code,
-        target_language_code,
-        api_key,
-        model,
-        timeout_seconds
-      )
+      block_index = (index // batch_size) + 1
+      def _request_translation_block():
+        return _openai_translate_lines(
+          request_lines,
+          source_language_code,
+          target_language_code,
+          api_key,
+          model,
+          timeout_seconds
+        )
+
+      try:
+        translated_lines = translate_block_with_one_retry(
+          request_lines,
+          _request_translation_block,
+          lambda attempt, exc: _log(
+            'ai translation block %d attempt %d/2 failed: %s'
+            % (block_index, attempt, exc),
+            LOG_WARNING
+          ),
+        )
+      except Exception:
+        message = __language__(33309) % (block_index)
+        _notify(message, NOTIFY_ERROR)
+        _log('ai translation failed permanently at block %d' % (block_index), LOG_ERROR)
+        raise RuntimeError(message)
 
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
