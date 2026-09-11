@@ -5,6 +5,14 @@ import re
 
 SOURCE_ECHO_RETRY_RATIO = 0.80
 MIN_MEANINGFUL_WORDS_FOR_ECHO_CHECK = 5
+ENGLISH_FUNCTION_WORDS = set([
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'do',
+    'for', 'from', 'he', 'her', 'him', 'his', 'i', 'if', 'in', 'is', 'it',
+    'me', 'my', 'no', 'not', 'of', 'on', 'or', 'our', 'she', 'so', 'that',
+    'the', 'their', 'them', 'there', 'they', 'this', 'to', 'us', 'was',
+    'we', 'were', 'what', 'when', 'where', 'who', 'why', 'with', 'you',
+    'your',
+])
 
 LANGUAGE_SCRIPT = {
     'ru': 'cyrillic', 'uk': 'cyrillic', 'bg': 'cyrillic', 'sr': 'cyrillic',
@@ -45,6 +53,29 @@ def _meaningful_word_count(lines):
             if sum(1 for character in word if character.isalpha()) >= 2:
                 count += 1
     return count
+
+
+def _looks_like_untranslated_english(source_line, translated_line, source_language_code, target_language_code):
+  source_code = _as_text(source_language_code).lower().split('-', 1)[0]
+  target_code = _as_text(target_language_code).lower().split('-', 1)[0]
+  if target_code in ('', 'en', 'eng') or source_code == target_code:
+    return False
+  if _language_script(source_code) != _language_script(target_code):
+    return False
+  normalized_source = _visible_normalized_text(source_line)
+  normalized_translation = _visible_normalized_text(translated_line)
+  if not normalized_source or normalized_source != normalized_translation:
+    return False
+
+  visible = _as_text(source_line)
+  visible = visible.replace('\\N', ' ')
+  visible = re.sub(r'\{\\[^}]*\}', ' ', visible)
+  visible = re.sub(r'<[^>]+>', ' ', visible)
+  words = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", visible)
+  if len(words) < 3:
+    return False
+  function_word_count = sum(1 for word in words if word.lower() in ENGLISH_FUNCTION_WORDS)
+  return (float(function_word_count) / len(words)) >= 0.60
 
 
 def _language_script(language_code):
@@ -103,6 +134,20 @@ def validate_translation_block(source_lines, translated_lines, source_language_c
         raise TranslationValidationError(
             'translation count mismatch: got=%d expected=%d' % (len(translated), len(source))
         )
+
+    source_code = _as_text(source_language_code).lower().split('-', 1)[0]
+    target_code = _as_text(target_language_code).lower().split('-', 1)[0]
+    if source_code and source_code == target_code:
+        return translated
+
+    for source_line, translated_line in zip(source, translated):
+        if _looks_like_untranslated_english(
+            source_line,
+            translated_line,
+            source_language_code,
+            target_language_code,
+        ):
+            raise _echo_error('untranslated English line detected')
 
     if _meaningful_word_count(source) < MIN_MEANINGFUL_WORDS_FOR_ECHO_CHECK:
         return translated

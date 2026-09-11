@@ -87,3 +87,30 @@ class TranslationValidationTests(unittest.TestCase):
             )
 
         self.assertEqual([1, 2], attempts)
+
+    def test_unchanged_english_sentence_is_rejected_for_dutch(self):
+        with self.assertRaises(TranslationValidationError):
+            validate_translation_block(
+                ['I am here and you are there'],
+                ['I am here and you are there'],
+                'en',
+                'nl',
+            )
+
+    def test_natural_dutch_line_passes_for_dutch(self):
+        translated = ['Ik ben hier en jij bent daar']
+        self.assertEqual(translated, validate_translation_block(
+            ['I am here and you are there'], translated, 'en', 'nl'
+        ))
+
+    def test_name_only_line_passes_for_dutch(self):
+        translated = ['John Smith']
+        self.assertEqual(translated, validate_translation_block(
+            ['John Smith'], translated, 'en', 'nl'
+        ))
+
+    def test_unchanged_english_line_is_allowed_for_english(self):
+        translated = ['I am here and you are there']
+        self.assertEqual(translated, validate_translation_block(
+            translated, translated, 'en', 'en'
+        ))
