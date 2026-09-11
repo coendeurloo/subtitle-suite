@@ -2,7 +2,7 @@
 
 import unittest
 
-from resources.lib.translation_prompt import _build_translation_prompt
+from resources.lib.translation_prompt import _build_translation_prompt, _language_display_name
 
 
 class TranslationPromptTests(unittest.TestCase):
@@ -41,7 +41,30 @@ class TranslationPromptTests(unittest.TestCase):
         system, prompt = _build_translation_prompt(['Hello'], 'en', 'nl')
 
         self.assertEqual('You are a subtitle translator. Return only valid JSON.', system)
-        self.assertIn('Translate subtitle lines from en to nl.', prompt)
+        self.assertIn('Translate subtitle lines from English (en) to Dutch (nl).', prompt)
         self.assertIn('Lines JSON:', prompt)
         self.assertNotIn('Context:', prompt)
         self.assertNotIn('natural, idiomatic', prompt)
+
+    def test_language_display_names_cover_aliases_and_fallbacks(self):
+        self.assertEqual('Dutch', _language_display_name('nl'))
+        self.assertEqual('Dutch', _language_display_name('nl-NL'))
+        self.assertEqual('Dutch', _language_display_name('nld'))
+        self.assertEqual('Russian', _language_display_name('ru'))
+        self.assertEqual('English', _language_display_name('en'))
+        self.assertEqual('auto', _language_display_name('auto'))
+        self.assertEqual('', _language_display_name(''))
+        self.assertEqual('xx-YY', _language_display_name('xx-YY'))
+
+    def test_auto_source_keeps_existing_wording_and_names_target(self):
+        _, prompt = _build_translation_prompt(['Hello'], 'auto', 'nl')
+
+        self.assertIn(
+            'Translate subtitle lines from the subtitle source language (auto-detect) to Dutch (nl).',
+            prompt,
+        )
+
+    def test_context_prompt_uses_language_names(self):
+        _, prompt = _build_translation_prompt(['Hello'], 'nld', 'en', {})
+
+        self.assertIn('Translate subtitle lines from Dutch (nl) to English (en).', prompt)

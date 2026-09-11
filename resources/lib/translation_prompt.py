@@ -3,6 +3,24 @@
 
 import json
 
+from resources.lib.languages import normalize_language_code
+
+
+LANGUAGE_DISPLAY_NAMES = {
+  'af': 'Afrikaans', 'sq': 'Albanian', 'ar': 'Arabic', 'hy': 'Armenian', 'az': 'Azerbaijani',
+  'eu': 'Basque', 'be': 'Belarusian', 'bn': 'Bengali', 'bs': 'Bosnian', 'bg': 'Bulgarian',
+  'ca': 'Catalan', 'zh': 'Chinese', 'hr': 'Croatian', 'cs': 'Czech', 'da': 'Danish',
+  'nl': 'Dutch', 'en': 'English', 'et': 'Estonian', 'fi': 'Finnish', 'fr': 'French',
+  'gl': 'Galician', 'ka': 'Georgian', 'de': 'German', 'el': 'Greek', 'he': 'Hebrew',
+  'hi': 'Hindi', 'hu': 'Hungarian', 'is': 'Icelandic', 'id': 'Indonesian', 'ga': 'Irish',
+  'it': 'Italian', 'ja': 'Japanese', 'kk': 'Kazakh', 'ko': 'Korean', 'lv': 'Latvian',
+  'lt': 'Lithuanian', 'mk': 'Macedonian', 'ms': 'Malay', 'no': 'Norwegian', 'fa': 'Persian',
+  'pl': 'Polish', 'pt': 'Portuguese', 'ro': 'Romanian', 'ru': 'Russian', 'sr': 'Serbian',
+  'sk': 'Slovak', 'sl': 'Slovenian', 'es': 'Spanish', 'sv': 'Swedish', 'ta': 'Tamil',
+  'th': 'Thai', 'tr': 'Turkish', 'uk': 'Ukrainian', 'ur': 'Urdu', 'vi': 'Vietnamese',
+  'cy': 'Welsh',
+}
+
 
 def _as_text(value):
   if value is None:
@@ -12,10 +30,33 @@ def _as_text(value):
   return u'%s' % (value,)
 
 
+def _language_display_name(code):
+  raw_code = _as_text(code).strip()
+  if not raw_code:
+    return ''
+  normalized_code = normalize_language_code(raw_code)
+  if normalized_code in ('', 'auto'):
+    return normalized_code or raw_code
+  return LANGUAGE_DISPLAY_NAMES.get(normalized_code, raw_code)
+
+
+def _language_hint(code, fallback):
+  raw_code = _as_text(code).strip()
+  normalized_code = normalize_language_code(raw_code)
+  if not raw_code or raw_code.lower() == 'auto':
+    return fallback
+  display_name = _language_display_name(raw_code)
+  if normalized_code in LANGUAGE_DISPLAY_NAMES:
+    return '%s (%s)' % (display_name, normalized_code)
+  return raw_code
+
+
 def _build_translation_prompt(lines, source_language_code, target_language_code, context=None):
-  source_hint = source_language_code
-  if not source_hint or source_hint == 'auto':
-    source_hint = 'the subtitle source language (auto-detect)'
+  source_hint = _language_hint(
+    source_language_code,
+    'the subtitle source language (auto-detect)',
+  )
+  target_hint = _language_hint(target_language_code, 'the target language')
 
   if not context:
     return (
@@ -30,7 +71,7 @@ def _build_translation_prompt(lines, source_language_code, target_language_code,
         '\nLines JSON:\n%s'
       ) % (
         source_hint,
-        target_language_code,
+        target_hint,
         json.dumps(lines, ensure_ascii=False)
       )
     )
@@ -70,7 +111,7 @@ def _build_translation_prompt(lines, source_language_code, target_language_code,
       '\nLines JSON:\n%s'
     ) % (
       source_hint,
-      target_language_code,
+      target_hint,
       '\n'.join(context_lines),
       json.dumps(lines, ensure_ascii=False)
     )
