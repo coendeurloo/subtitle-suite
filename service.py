@@ -71,6 +71,7 @@ from resources.lib.translation_prompt import _build_translation_prompt
 from resources.lib.translation_batches import TRANSLATION_MAX_SOURCE_CHARACTERS, _split_translation_lines
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
+OPENAI_RESPONSE_FORMAT_SUPPORTED = None
 LUCKY_FLOW_ACTIVE = False
 TIMING_LOGGING_ENABLED = None
 FIRST_MENU_ITEM_REPORTED = False
@@ -1270,6 +1271,7 @@ def _extract_json_payload(raw_content):
   return payload
 
 def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None):
+  global OPENAI_RESPONSE_FORMAT_SUPPORTED
   system_prompt, user_prompt = _build_translation_prompt(
     lines, source_language_code, target_language_code, context=context
   )
@@ -1288,26 +1290,27 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
       }
     ]
   }
-  request_payload['response_format'] = {
-    'type': 'json_schema',
-    'json_schema': {
-      'name': 'subtitle_translations',
-      'strict': True,
-      'schema': {
-        'type': 'object',
-        'properties': {
-          'translations': {
-            'type': 'array',
-            'items': {'type': 'string'},
-            'minItems': len(lines),
-            'maxItems': len(lines),
+  if OPENAI_RESPONSE_FORMAT_SUPPORTED is not False:
+    request_payload['response_format'] = {
+      'type': 'json_schema',
+      'json_schema': {
+        'name': 'subtitle_translations',
+        'strict': True,
+        'schema': {
+          'type': 'object',
+          'properties': {
+            'translations': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'minItems': len(lines),
+              'maxItems': len(lines),
+            },
           },
+          'required': ['translations'],
+          'additionalProperties': False,
         },
-        'required': ['translations'],
-        'additionalProperties': False,
       },
-    },
-  }
+    }
 
   raw_response = None
   for request_attempt in range(2):
@@ -1318,6 +1321,8 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     try:
       response = urlopen(request, timeout=timeout_seconds)
       raw_response = response.read()
+      if 'response_format' in request_payload:
+        OPENAI_RESPONSE_FORMAT_SUPPORTED = True
       break
     except HTTPError as exc:
       body = ''
@@ -1326,6 +1331,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
       except Exception:
         pass
       if getattr(exc, 'code', None) == 400 and request_attempt == 0 and 'response_format' in request_payload:
+        OPENAI_RESPONSE_FORMAT_SUPPORTED = False
         _log('openai response schema rejected; retrying without response_format', LOG_WARNING)
         del request_payload['response_format']
         continue
