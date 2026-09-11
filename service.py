@@ -67,6 +67,7 @@ from resources.lib.file_safety import copy_and_replace_atomically, same_director
 from resources.lib.background_jobs import CancellableJob, JobCancelled
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import TranslationValidationError, translate_block_with_one_retry
+from resources.lib.translation_prompt import _build_translation_prompt
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
@@ -862,6 +863,10 @@ def _current_video_metadata():
     'imdb_id': '',
     'title': '',
     'tvshow_title': '',
+    'year': '',
+    'genre': '',
+    'plot': '',
+    'cast': [],
   }
 
   player = xbmc.Player()
@@ -890,6 +895,37 @@ def _current_video_metadata():
       metadata['tvshow_title'] = _as_text(tag.getTVShowTitle()).strip()
     except Exception:
       pass
+    try:
+      metadata['year'] = _as_text(tag.getYear()).strip()
+    except Exception:
+      pass
+    try:
+      genres = tag.getGenres()
+    except Exception:
+      try:
+        genres = tag.getGenre()
+      except Exception:
+        genres = ''
+    if isinstance(genres, (list, tuple)):
+      metadata['genre'] = ', '.join([_as_text(item).strip() for item in genres if _as_text(item).strip()])
+    else:
+      metadata['genre'] = _as_text(genres).strip()
+    try:
+      metadata['plot'] = _as_text(tag.getPlot()).strip()
+    except Exception:
+      pass
+    try:
+      cast = tag.getCast() or []
+    except Exception:
+      cast = []
+    for item in cast[:5]:
+      if isinstance(item, dict):
+        name = item.get('name', '')
+      else:
+        name = getattr(item, 'name', item)
+      name = _as_text(name).strip()
+      if name:
+        metadata['cast'].append(name)
 
   if not metadata['imdb_id']:
     try:
@@ -1232,23 +1268,9 @@ def _extract_json_payload(raw_content):
     raise RuntimeError('OpenAI returned an invalid JSON payload.')
   return payload
 
-def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds):
-  source_hint = source_language_code
-  if not source_hint or source_hint == 'auto':
-    source_hint = 'the subtitle source language (auto-detect)'
-
-  user_prompt = (
-    'Translate subtitle lines from %s to %s.\n'
-    'Return JSON only with this exact format: {"translations":["..."]}\n'
-    'Rules:\n'
-    '- Keep the same number of items and same order.\n'
-    '- Keep \\N markers and formatting tags like {\\i1} unchanged when present.\n'
-    '- Do not add notes or extra fields.\n'
-    '\nLines JSON:\n%s'
-  ) % (
-    source_hint,
-    target_language_code,
-    json.dumps(lines, ensure_ascii=False)
+def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None):
+  system_prompt, user_prompt = _build_translation_prompt(
+    lines, source_language_code, target_language_code, context=context
   )
 
   request_payload = {
@@ -1257,7 +1279,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     'messages': [
       {
         'role': 'system',
-        'content': 'You are a subtitle translator. Return only valid JSON.'
+        'content': system_prompt
       },
       {
         'role': 'user',
@@ -2625,6 +2647,22 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     translated_count = 0
     total_lines = len(subtitle_lines)
     index = 0
+    metadata = _current_video_metadata()
+    _, video_basename = _current_video_context()
+    season, episode = _extract_season_episode(video_basename)
+    translation_context = {
+      'title': metadata.get('title', '') or video_basename,
+      'year': metadata.get('year', '') or _extract_release_year(video_basename),
+      'kind': 'TV show' if metadata.get('tvshow_title', '') or season or episode else 'movie',
+      'show_title': metadata.get('tvshow_title', ''),
+      'season': season,
+      'episode': episode,
+      'genre': metadata.get('genre', ''),
+      'plot': metadata.get('plot', ''),
+      'cast': metadata.get('cast', []),
+      'previous_source_lines': [],
+      'previous_translated_lines': [],
+    }
     while index < total_lines:
       try:
         if progress.iscanceled():
@@ -2652,7 +2690,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
             target_language_code,
             api_key,
             model,
-            timeout_seconds
+            timeout_seconds,
+            context=translation_context,
           )
 
         job = CancellableJob(_translate_worker).start()
@@ -2699,6 +2738,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
 
+      translation_context['previous_source_lines'] = request_lines[-3:]
+      translation_context['previous_translated_lines'] = translated_lines[-2:]
       translated_count += len(chunk_lines)
       index += batch_size
       _progress_update(progress, int((100.0 * translated_count) / total_lines), __language__(33064), '%d/%d' % (translated_count, total_lines))
