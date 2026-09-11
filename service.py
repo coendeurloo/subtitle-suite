@@ -54,7 +54,7 @@ DOWNLOAD_TIMEOUT_SECONDS = 45
 MAX_MANUAL_ZIP_SUBTITLE_BYTES = 8 * 1024 * 1024
 # Keep AI translation stable by using fixed request sizing/timeouts.
 # These are intentionally not user-configurable in addon settings.
-OPENAI_TRANSLATION_BATCH_SIZE = 20
+OPENAI_TRANSLATION_BATCH_SIZE = 60
 OPENAI_REQUEST_TIMEOUT_SECONDS = 180
 FENCED_JSON_REGEX = re.compile(r'^```(?:json)?\s*(.*?)\s*```$', re.DOTALL)
 # Language code data lives in resources/lib/languages.py — imported below.
@@ -68,6 +68,7 @@ from resources.lib.background_jobs import CancellableJob, JobCancelled
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import TranslationValidationError, translate_block_with_one_retry
 from resources.lib.translation_prompt import _build_translation_prompt
+from resources.lib.translation_batches import TRANSLATION_MAX_SOURCE_CHARACTERS, _split_translation_lines
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 LUCKY_FLOW_ACTIVE = False
@@ -1287,29 +1288,55 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
       }
     ]
   }
+  request_payload['response_format'] = {
+    'type': 'json_schema',
+    'json_schema': {
+      'name': 'subtitle_translations',
+      'strict': True,
+      'schema': {
+        'type': 'object',
+        'properties': {
+          'translations': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'minItems': len(lines),
+            'maxItems': len(lines),
+          },
+        },
+        'required': ['translations'],
+        'additionalProperties': False,
+      },
+    },
+  }
 
-  request_data = _to_utf8_bytes(json.dumps(request_payload, ensure_ascii=False))
-  request = Request(OPENAI_CHAT_ENDPOINT, data=request_data)
-  request.add_header('Content-Type', 'application/json')
-  request.add_header('Authorization', 'Bearer %s' % (api_key))
-
-  try:
-    response = urlopen(request, timeout=timeout_seconds)
-    raw_response = response.read()
-  except HTTPError as exc:
-    body = ''
+  raw_response = None
+  for request_attempt in range(2):
+    request_data = _to_utf8_bytes(json.dumps(request_payload, ensure_ascii=False))
+    request = Request(OPENAI_CHAT_ENDPOINT, data=request_data)
+    request.add_header('Content-Type', 'application/json')
+    request.add_header('Authorization', 'Bearer %s' % (api_key))
     try:
-      body = _as_text(exc.read())
-    except Exception:
-      pass
-    _log('openai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
-    raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
-  except URLError as exc:
-    _log('openai request network error: %s' % (exc), LOG_ERROR)
-    raise RuntimeError('OpenAI request failed (network error).')
-  except Exception as exc:
-    _log('openai request unexpected error: %s' % (exc), LOG_ERROR)
-    raise RuntimeError('OpenAI request failed.')
+      response = urlopen(request, timeout=timeout_seconds)
+      raw_response = response.read()
+      break
+    except HTTPError as exc:
+      body = ''
+      try:
+        body = _as_text(exc.read())
+      except Exception:
+        pass
+      if getattr(exc, 'code', None) == 400 and request_attempt == 0 and 'response_format' in request_payload:
+        _log('openai response schema rejected; retrying without response_format', LOG_WARNING)
+        del request_payload['response_format']
+        continue
+      _log('openai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
+      raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
+    except URLError as exc:
+      _log('openai request network error: %s' % (exc), LOG_ERROR)
+      raise RuntimeError('OpenAI request failed (network error).')
+    except Exception as exc:
+      _log('openai request unexpected error: %s' % (exc), LOG_ERROR)
+      raise RuntimeError('OpenAI request failed.')
 
   try:
     response_payload = json.loads(_as_text(raw_response))
@@ -2647,6 +2674,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     translated_count = 0
     total_lines = len(subtitle_lines)
     index = 0
+    block_index = 0
     metadata = _current_video_metadata()
     _, video_basename = _current_video_context()
     season, episode = _extract_season_episode(video_basename)
@@ -2672,12 +2700,15 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       except Exception:
         pass
 
-      chunk_lines = subtitle_lines[index:index + batch_size]
+      remaining_lines = subtitle_lines[index:]
+      chunk_lines = _split_translation_lines(
+        remaining_lines, batch_size, TRANSLATION_MAX_SOURCE_CHARACTERS
+      )[0]
       request_lines = []
       for item in chunk_lines:
         request_lines.append(_as_text(item.text))
 
-      block_index = (index // batch_size) + 1
+      block_index += 1
       block_started_at = time.monotonic()
       block_attempts = [1]
       def _request_translation_block():
@@ -2741,7 +2772,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       translation_context['previous_source_lines'] = request_lines[-3:]
       translation_context['previous_translated_lines'] = translated_lines[-2:]
       translated_count += len(chunk_lines)
-      index += batch_size
+      index += len(chunk_lines)
       _progress_update(progress, int((100.0 * translated_count) / total_lines), __language__(33064), '%d/%d' % (translated_count, total_lines))
 
     try:
