@@ -1238,7 +1238,7 @@ def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.'
     try:
       if progress is not None and progress.iscanceled():
         job.cancel()
-        raise RuntimeError(cancel_message)
+        raise JobCancelled(cancel_message)
     except RuntimeError:
       raise
     except Exception:
@@ -1248,7 +1248,7 @@ def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.'
   try:
     return job.get_result()
   except JobCancelled:
-    raise RuntimeError(cancel_message)
+    raise
 
 def _extract_json_payload(raw_content):
   content = _as_text(raw_content).strip()
@@ -2678,6 +2678,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     progress.create(__scriptname__, __language__(33064))
 
     translated_count = 0
+    fallback_block_count = 0
     total_lines = len(subtitle_lines)
     index = 0
     block_index = 0
@@ -2717,6 +2718,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       block_index += 1
       block_started_at = time.monotonic()
       block_attempts = [1]
+      translation_block_succeeded = True
       def _request_translation_block():
         def _translate_worker(cancel_event):
           if cancel_event.is_set():
@@ -2752,11 +2754,17 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           source_language_code=source_language_code,
           target_language_code=target_language_code,
         )
-      except Exception:
-        message = __language__(33309) % (block_index)
-        _notify(message, NOTIFY_ERROR)
-        _log('ai translation failed permanently at block %d' % (block_index), LOG_ERROR)
-        raise RuntimeError(message)
+      except JobCancelled:
+        raise
+      except Exception as exc:
+        fallback_block_count += 1
+        translation_block_succeeded = False
+        translated_lines = request_lines
+        _log(
+          'ai translation block %d failed after %d attempts; keeping source line: %s error=%s'
+          % (block_index, block_attempts[0], _as_text(request_lines[0]) if request_lines else '', exc),
+          LOG_ERROR,
+        )
       finally:
         _log_timing(
           'translation_block',
@@ -2775,11 +2783,20 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
 
-      translation_context['previous_source_lines'] = request_lines[-3:]
-      translation_context['previous_translated_lines'] = translated_lines[-2:]
+      if translation_block_succeeded:
+        translation_context['previous_source_lines'] = request_lines[-3:]
+        translation_context['previous_translated_lines'] = translated_lines[-2:]
       translated_count += len(chunk_lines)
       index += len(chunk_lines)
       _progress_update(progress, int((100.0 * translated_count) / total_lines), __language__(33064), '%d/%d' % (translated_count, total_lines))
+
+    _log(
+      'ai translation summary: blocks=%d fallback_blocks=%d translated_lines=%d/%d'
+      % (block_index, fallback_block_count, translated_count, total_lines),
+      LOG_INFO,
+    )
+    if fallback_block_count:
+      _notify(__language__(33312) % (fallback_block_count), NOTIFY_WARNING)
 
     try:
       if progress.iscanceled():

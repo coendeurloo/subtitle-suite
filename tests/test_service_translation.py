@@ -160,3 +160,119 @@ class OpenAITranslationRequestTests(unittest.TestCase):
       service._openai_translate_lines(['Hello'], 'en', 'nl', 'key', 'model', 10),
     )
     self.assertNotIn('response_format', payloads[0])
+
+
+class _SubtitleLine(object):
+  def __init__(self, text):
+    self.text = text
+
+
+class _SubtitleData(list):
+  def __init__(self, lines):
+    super(_SubtitleData, self).__init__(lines)
+    self.saved = False
+
+  def save(self, path, encoding=None, format_=None):
+    self.saved = True
+
+
+class _Progress(object):
+  def create(self, *args, **kwargs):
+    pass
+
+  def iscanceled(self):
+    return False
+
+  def update(self, *args, **kwargs):
+    pass
+
+  def close(self):
+    pass
+
+
+class SubtitleTranslationBlockTests(unittest.TestCase):
+  def _run_translation(self, translation_response):
+    data = _SubtitleData([_SubtitleLine('line %d' % index) for index in range(1, 6)])
+    logs = []
+    notifications = []
+    contexts = []
+    originals = {}
+
+    def patch(name, value):
+      originals[name] = getattr(service, name)
+      setattr(service, name, value)
+
+    def fake_translate(lines, source_code, target_code, api_key, model, timeout, context=None):
+      contexts.append({
+        'request': list(lines),
+        'previous_translated_lines': list(context.get('previous_translated_lines') or []),
+      })
+      return translation_response(lines)
+
+    patch('_get_openai_api_key', lambda: 'key')
+    patch('_get_openai_model', lambda: 'model')
+    patch('_get_translation_batch_size', lambda: 2)
+    patch('_get_translation_timeout_seconds', lambda: 10)
+    patch('_load_pysubs2', lambda: types.SimpleNamespace(load=lambda *args, **kwargs: data))
+    patch('_copy_subtitle_to_temp', lambda path: 'source.srt')
+    patch('_detect_text_encoding', lambda path: 'utf-8')
+    patch('_current_video_metadata', lambda: {})
+    patch('_current_video_context', lambda: ('', 'movie.mkv'))
+    patch('_extract_season_episode', lambda basename: ('', ''))
+    patch('_extract_release_year', lambda basename: '')
+    patch('_replace_file_with_dualsubs_backup', lambda *args, **kwargs: None)
+    patch('_build_translated_subtitle_path', lambda source, target: 'translated.srt')
+    patch('_openai_translate_lines', fake_translate)
+    patch('_progress_update', lambda *args, **kwargs: None)
+    patch('_log_timing', lambda event, started_at, details='': logs.append(('timing', event, details)))
+    patch('_log', lambda message, level: logs.append((level, message)))
+    patch('_notify', lambda message, icon, timeout=4000: notifications.append((message, icon)))
+    patch('__language__', lambda message_id: {
+      33064: 'Translating',
+      33072: 'AI translation cancelled.',
+      33312: 'AI translation kept the source language for %d block(s).',
+    }.get(message_id, str(message_id)))
+    patch('xbmcgui', types.SimpleNamespace(DialogProgress=_Progress))
+    patch('OPENAI_RESPONSE_FORMAT_SUPPORTED', True)
+    patch('xbmcvfs', types.SimpleNamespace(delete=lambda path: True))
+
+    try:
+      result = service._translate_subtitle_file('source.srt', 'en', 'nl')
+      return data, logs, notifications, contexts, result
+    finally:
+      for name, value in originals.items():
+        setattr(service, name, value)
+
+  def test_permanent_block_failure_keeps_source_and_continues(self):
+    def translate_response(lines):
+      if lines[0] == 'line 3':
+        raise RuntimeError('permanent failure')
+      return ['translated %s' % line for line in lines]
+
+    data, logs, notifications, contexts, result = self._run_translation(translate_response)
+
+    self.assertEqual('translated line 1', data[0].text)
+    self.assertEqual('translated line 2', data[1].text)
+    self.assertEqual('line 3', data[2].text)
+    self.assertEqual('line 4', data[3].text)
+    self.assertEqual('translated line 5', data[4].text)
+    self.assertEqual('translated.srt', result)
+    self.assertEqual(1, len(notifications))
+    self.assertIn('source language for 1 block(s)', notifications[0][0])
+
+    error_logs = [entry[1] for entry in logs if entry[0] == service.LOG_ERROR]
+    self.assertTrue(any(
+      'block 2' in message and '2 attempts' in message and 'line 3' in message
+      for message in error_logs
+    ))
+    summaries = [entry[1] for entry in logs if entry[0] == service.LOG_INFO and 'summary:' in entry[1]]
+    self.assertEqual(1, len(summaries))
+    self.assertIn('fallback_blocks=1', summaries[0])
+    self.assertEqual(['translated line 1', 'translated line 2'], contexts[-1]['previous_translated_lines'])
+
+  def test_cancellation_during_block_aborts_translation(self):
+    def translate_response(lines):
+      raise service.JobCancelled('cancelled')
+
+    with self.assertRaises(service.JobCancelled):
+      self._run_translation(translate_response)

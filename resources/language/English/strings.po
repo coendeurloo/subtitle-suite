@@ -274,6 +274,10 @@ msgctxt "#33311"
 msgid "Fix common video-speed differences (25 fps / 24 fps)"
 msgstr ""
 
+msgctxt "#33312"
+msgid "AI translation kept the source language for %d block(s)."
+msgstr ""
+
 msgctxt "#33073"
 msgid "AI timeout (seconds)"
 msgstr ""

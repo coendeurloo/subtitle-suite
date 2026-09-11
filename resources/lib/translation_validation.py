@@ -3,6 +3,8 @@
 
 import re
 
+from resources.lib.background_jobs import JobCancelled
+
 SOURCE_ECHO_RETRY_RATIO = 0.80
 MIN_MEANINGFUL_WORDS_FOR_ECHO_CHECK = 5
 ENGLISH_FUNCTION_WORDS = set([
@@ -192,6 +194,8 @@ def translate_block_with_one_retry(source_lines, request_translation, on_attempt
                 source_language_code=source_language_code,
                 target_language_code=target_language_code,
             )
+        except JobCancelled:
+            raise
         except Exception as exc:
             if on_attempt_failure is not None:
                 try:
