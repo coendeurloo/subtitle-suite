@@ -104,11 +104,13 @@ class OpenAITranslationRequestTests(unittest.TestCase):
     self.original_state = service.OPENAI_RESPONSE_FORMAT_SUPPORTED
     self.original_urlopen = service.urlopen
     self.original_log = service._log
+    self.original_sleep = service.time.sleep
 
   def tearDown(self):
     service.OPENAI_RESPONSE_FORMAT_SUPPORTED = self.original_state
     service.urlopen = self.original_urlopen
     service._log = self.original_log
+    service.time.sleep = self.original_sleep
 
   def test_schema_rejection_is_remembered_for_later_blocks(self):
     payloads = []
@@ -160,6 +162,28 @@ class OpenAITranslationRequestTests(unittest.TestCase):
       service._openai_translate_lines(['Hello'], 'en', 'nl', 'key', 'model', 10),
     )
     self.assertNotIn('response_format', payloads[0])
+
+  def test_transient_read_timeout_is_retried_before_failing(self):
+    calls = []
+    logs = []
+
+    def fake_urlopen(request, timeout):
+      calls.append(timeout)
+      if len(calls) == 1:
+        raise TimeoutError('The read operation timed out')
+      return _response(['Hallo'])
+
+    service.OPENAI_RESPONSE_FORMAT_SUPPORTED = False
+    service.urlopen = fake_urlopen
+    service.time.sleep = lambda seconds: None
+    service._log = lambda message, level: logs.append((message, level))
+
+    self.assertEqual(
+      ['Hallo'],
+      service._openai_translate_lines(['Hello'], 'en', 'nl', 'key', 'model', 10),
+    )
+    self.assertEqual([10, 10], calls)
+    self.assertTrue(any('transient network error' in message for message, _ in logs))
 
 
 class _SubtitleLine(object):
@@ -243,32 +267,16 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
       for name, value in originals.items():
         setattr(service, name, value)
 
-  def test_permanent_block_failure_keeps_source_and_continues(self):
+  def test_permanent_block_failure_aborts_without_writing_output(self):
     def translate_response(lines):
       if lines[0] == 'line 3':
         raise RuntimeError('permanent failure')
       return ['translated %s' % line for line in lines]
 
-    data, logs, notifications, contexts, result = self._run_translation(translate_response)
+    with self.assertRaises(RuntimeError) as error:
+      self._run_translation(translate_response)
 
-    self.assertEqual('translated line 1', data[0].text)
-    self.assertEqual('translated line 2', data[1].text)
-    self.assertEqual('line 3', data[2].text)
-    self.assertEqual('line 4', data[3].text)
-    self.assertEqual('translated line 5', data[4].text)
-    self.assertEqual('translated.srt', result)
-    self.assertEqual(1, len(notifications))
-    self.assertIn('source language for 1 block(s)', notifications[0][0])
-
-    error_logs = [entry[1] for entry in logs if entry[0] == service.LOG_ERROR]
-    self.assertTrue(any(
-      'block 2' in message and '2 attempts' in message and 'line 3' in message
-      for message in error_logs
-    ))
-    summaries = [entry[1] for entry in logs if entry[0] == service.LOG_INFO and 'summary:' in entry[1]]
-    self.assertEqual(1, len(summaries))
-    self.assertIn('fallback_blocks=1', summaries[0])
-    self.assertEqual(['translated line 1', 'translated line 2'], contexts[-1]['previous_translated_lines'])
+    self.assertIn('failed at block 2', str(error.exception))
 
   def test_cancellation_during_block_aborts_translation(self):
     def translate_response(lines):

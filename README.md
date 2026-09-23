@@ -29,11 +29,10 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 
 ### Opening settings
 
-The subtitle search window treats every result as a subtitle file. To avoid a
-misleading download-failed message, Subtitle Suite's settings are opened through
-Kodi itself: open the context menu on **Subtitle Suite** in the subtitle service
-list and choose **Settings**, or use **Add-ons** → **My add-ons** → **Subtitle
-services** → **Subtitle Suite** → **Configure**.
+Open the context menu on any Subtitle Suite action in the subtitle search menu
+and choose **Add-on Settings...**. You can also use **Add-ons** → **My add-ons**
+→ **Subtitle services** → **Subtitle Suite** → **Configure**. The actions you
+use most often move to the top of the menu automatically.
 
 ## How Lucky Works
 
@@ -114,6 +113,7 @@ AI translation is optional and manual key-based.
 - Used as fallback in Lucky flows or directly via manual action.
 - Progress now shows explicit direction (for example: `Translating English to Dutch using AI...`).
 - Each response block must contain a complete translation. Invalid or source-echoed blocks retry once; a second failure stops the translation without changing an existing subtitle file.
+- Translation uses smaller blocks and retries temporary network/server failures before stopping.
 - Playback is paused during translation steps and resumed afterward.
 
 ## Settings (Quick View)

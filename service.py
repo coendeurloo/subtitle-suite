@@ -52,10 +52,13 @@ LOG_ERROR = getattr(xbmc, 'LOGERROR', 4)
 OPENAI_CHAT_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 DOWNLOAD_TIMEOUT_SECONDS = 45
 MAX_MANUAL_ZIP_SUBTITLE_BYTES = 8 * 1024 * 1024
-# Keep AI translation stable by using fixed request sizing/timeouts.
+# Keep AI translation stable by using conservative request sizing/timeouts.
 # These are intentionally not user-configurable in addon settings.
-OPENAI_TRANSLATION_BATCH_SIZE = 60
-OPENAI_REQUEST_TIMEOUT_SECONDS = 180
+OPENAI_TRANSLATION_BATCH_SIZE = 30
+OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS = 4000
+OPENAI_REQUEST_TIMEOUT_SECONDS = 90
+OPENAI_MAX_REQUEST_ATTEMPTS = 3
+OPENAI_RETRY_DELAYS_SECONDS = (2, 5)
 FENCED_JSON_REGEX = re.compile(r'^```(?:json)?\s*(.*?)\s*```$', re.DOTALL)
 # Language code data lives in resources/lib/languages.py — imported below.
 from resources.lib.languages import (
@@ -68,7 +71,7 @@ from resources.lib.background_jobs import CancellableJob, JobCancelled
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import TranslationValidationError, translate_block_with_one_retry
 from resources.lib.translation_prompt import _build_translation_prompt
-from resources.lib.translation_batches import TRANSLATION_MAX_SOURCE_CHARACTERS, _split_translation_lines
+from resources.lib.translation_batches import _split_translation_lines
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 OPENAI_RESPONSE_FORMAT_SUPPORTED = None
@@ -272,29 +275,55 @@ try:
 except Exception:
   window = ''
 
-def _get_last_used_main_action():
+MAIN_MENU_ACTIONS = (
+  ('downloadmanual', 33162),
+  ('ifeelluckysingle', 33274),
+  ('ifeelluckydual', 33275),
+  ('browsedual', 33004),
+  ('smartsyncmanual', 33120),
+  ('translatemanual', 33121),
+  ('restorebackup', 33150),
+)
+
+def _main_action_usage_path():
+  return os.path.join(__profile__, 'main_menu_action_usage.json')
+
+def _load_main_action_usage():
   try:
-    return _as_text(__addon__.getSetting('last_used_main_action')).strip()
+    with open(_main_action_usage_path(), 'r') as handle:
+      usage = json.load(handle)
+    if not isinstance(usage, dict):
+      return {}
+    return {
+      action: max(0, int(usage.get(action, 0)))
+      for action, _label_id in MAIN_MENU_ACTIONS
+    }
   except Exception:
-    return ''
+    return {}
 
 def _remember_main_action(action):
-  # The Kodi subtitle-search directory API has no portable focus/preselect
-  # call.  Store the action and expose it as a list-item property for skins.
-  if action not in ('downloadmanual', 'ifeelluckysingle', 'ifeelluckydual', 'browsedual', 'smartsyncmanual', 'translatemanual', 'restorebackup'):
+  """Count a chosen menu action so frequently used actions can move up."""
+  if action not in [item[0] for item in MAIN_MENU_ACTIONS]:
     return
   try:
-    __addon__.setSetting('last_used_main_action', action)
+    xbmcvfs.mkdirs(__profile__)
+    usage = _load_main_action_usage()
+    usage[action] = usage.get(action, 0) + 1
+    with open(_main_action_usage_path(), 'w') as handle:
+      json.dump(usage, handle, sort_keys=True)
   except Exception as exc:
-    _log('could not remember main action (%s)' % (exc), LOG_DEBUG)
+    _log('could not save main menu action usage (%s)' % (exc), LOG_DEBUG)
 
 def AddItem(name, url, action_name=''):
   global FIRST_MENU_ITEM_REPORTED
   listitem = xbmcgui.ListItem(label="", label2=name)
   listitem.setProperty("sync", "false")
   listitem.setProperty("hearing_imp", "false")
-  if action_name and action_name == _get_last_used_main_action():
-    listitem.setProperty('subtitle_suite_last_used', 'true')
+  if action_name:
+    settings_url = "plugin://%s/?action=settings" % (__scriptid__)
+    listitem.addContextMenuItems([
+      (__language__(33008), 'RunPlugin(%s)' % (settings_url)),
+    ])
   xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=listitem, isFolder=False)
   if not FIRST_MENU_ITEM_REPORTED:
     FIRST_MENU_ITEM_REPORTED = True
@@ -303,13 +332,15 @@ def AddItem(name, url, action_name=''):
 def Search():
   menu_started_at = time.monotonic()
   try:
-    AddItem(__language__(33162), "plugin://%s/?action=downloadmanual" % (__scriptid__), 'downloadmanual')
-    AddItem(__language__(33274), "plugin://%s/?action=ifeelluckysingle" % (__scriptid__), 'ifeelluckysingle')
-    AddItem(__language__(33275), "plugin://%s/?action=ifeelluckydual" % (__scriptid__), 'ifeelluckydual')
-    AddItem(__language__(33004), "plugin://%s/?action=browsedual" % (__scriptid__), 'browsedual')
-    AddItem(__language__(33120), "plugin://%s/?action=smartsyncmanual" % (__scriptid__), 'smartsyncmanual')
-    AddItem(__language__(33121), "plugin://%s/?action=translatemanual" % (__scriptid__), 'translatemanual')
-    AddItem(__language__(33150), "plugin://%s/?action=restorebackup" % (__scriptid__), 'restorebackup')
+    usage = _load_main_action_usage()
+    actions = list(enumerate(MAIN_MENU_ACTIONS))
+    actions.sort(key=lambda item: (-usage.get(item[1][0], 0), item[0]))
+    for _original_index, (action, label_id) in actions:
+      AddItem(
+        __language__(label_id),
+        "plugin://%s/?action=%s" % (__scriptid__, action),
+        action,
+      )
   finally:
     _log_timing('menu_build', menu_started_at)
 
@@ -1232,17 +1263,18 @@ def _progress_update(progress, percent, line1='', line2=''):
   except Exception:
     pass
 
-def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.'):
+def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.', poll_cancel=True):
   """Poll a worker from Kodi's UI thread and discard work after cancellation."""
   while not job.is_done():
-    try:
-      if progress is not None and progress.iscanceled():
-        job.cancel()
-        raise JobCancelled(cancel_message)
-    except RuntimeError:
-      raise
-    except Exception:
-      pass
+    if poll_cancel:
+      try:
+        if progress is not None and progress.iscanceled():
+          job.cancel()
+          raise JobCancelled(cancel_message)
+      except RuntimeError:
+        raise
+      except Exception:
+        pass
     job.wait(0.05)
 
   try:
@@ -1269,6 +1301,16 @@ def _extract_json_payload(raw_content):
   if not isinstance(payload, dict):
     raise RuntimeError('OpenAI returned an invalid JSON payload.')
   return payload
+
+def _openai_retryable_status(code):
+  return code in (408, 409, 425, 429, 500, 502, 503, 504)
+
+
+def _openai_retry_delay(attempt_index):
+  if attempt_index < len(OPENAI_RETRY_DELAYS_SECONDS):
+    return OPENAI_RETRY_DELAYS_SECONDS[attempt_index]
+  return OPENAI_RETRY_DELAYS_SECONDS[-1]
+
 
 def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None):
   global OPENAI_RESPONSE_FORMAT_SUPPORTED
@@ -1313,7 +1355,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     }
 
   raw_response = None
-  for request_attempt in range(2):
+  for request_attempt in range(OPENAI_MAX_REQUEST_ATTEMPTS):
     request_data = _to_utf8_bytes(json.dumps(request_payload, ensure_ascii=False))
     request = Request(OPENAI_CHAT_ENDPOINT, data=request_data)
     request.add_header('Content-Type', 'application/json')
@@ -1330,19 +1372,40 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
         body = _as_text(exc.read())
       except Exception:
         pass
-      if getattr(exc, 'code', None) == 400 and request_attempt == 0 and 'response_format' in request_payload:
+      if getattr(exc, 'code', None) == 400 and 'response_format' in request_payload:
         OPENAI_RESPONSE_FORMAT_SUPPORTED = False
         _log('openai response schema rejected; retrying without response_format', LOG_WARNING)
         del request_payload['response_format']
         continue
+      if _openai_retryable_status(getattr(exc, 'code', None)) and request_attempt + 1 < OPENAI_MAX_REQUEST_ATTEMPTS:
+        delay = _openai_retry_delay(request_attempt)
+        _log(
+          'openai request transient HTTP error: code=%s attempt=%d/%d; retrying in %ss'
+          % (getattr(exc, 'code', 'unknown'), request_attempt + 1, OPENAI_MAX_REQUEST_ATTEMPTS, delay),
+          LOG_WARNING,
+        )
+        time.sleep(delay)
+        continue
       _log('openai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
       raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
-    except URLError as exc:
-      _log('openai request network error: %s' % (exc), LOG_ERROR)
+    except (URLError, TimeoutError, OSError) as exc:
+      if request_attempt + 1 < OPENAI_MAX_REQUEST_ATTEMPTS:
+        delay = _openai_retry_delay(request_attempt)
+        _log(
+          'openai request transient network error: %s attempt=%d/%d; retrying in %ss'
+          % (exc, request_attempt + 1, OPENAI_MAX_REQUEST_ATTEMPTS, delay),
+          LOG_WARNING,
+        )
+        time.sleep(delay)
+        continue
+      _log('openai request network error after %d attempts: %s' % (OPENAI_MAX_REQUEST_ATTEMPTS, exc), LOG_ERROR)
       raise RuntimeError('OpenAI request failed (network error).')
     except Exception as exc:
       _log('openai request unexpected error: %s' % (exc), LOG_ERROR)
       raise RuntimeError('OpenAI request failed.')
+
+  if raw_response is None:
+    raise RuntimeError('OpenAI request failed without a response.')
 
   try:
     response_payload = json.loads(_as_text(raw_response))
@@ -2678,7 +2741,6 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     progress.create(__scriptname__, __language__(33064))
 
     translated_count = 0
-    fallback_block_count = 0
     total_lines = len(subtitle_lines)
     index = 0
     block_index = 0
@@ -2709,7 +2771,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
       remaining_lines = subtitle_lines[index:]
       chunk_lines = _split_translation_lines(
-        remaining_lines, batch_size, TRANSLATION_MAX_SOURCE_CHARACTERS
+        remaining_lines, batch_size, OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS
       )[0]
       request_lines = []
       for item in chunk_lines:
@@ -2718,7 +2780,6 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       block_index += 1
       block_started_at = time.monotonic()
       block_attempts = [1]
-      translation_block_succeeded = True
       def _request_translation_block():
         def _translate_worker(cancel_event):
           if cancel_event.is_set():
@@ -2734,15 +2795,19 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           )
 
         job = CancellableJob(_translate_worker).start()
-        return _wait_for_network_job(job, progress, __language__(33072))
+        # A few Kodi skins make DialogProgress briefly invisible while a video
+        # is playing.  Do not interpret that rendering glitch as a user
+        # cancellation while an HTTP request is in flight.  Cancellation is
+        # still checked immediately before and after each block.
+        return _wait_for_network_job(job, progress, __language__(33072), poll_cancel=False)
 
       def _record_translation_block_failure(attempt, exc):
         block_attempts[0] = attempt
         if isinstance(exc, TranslationValidationError) and getattr(exc, 'source_echo_check_fired', False):
           _log('ai translation source-echo check fired: block=%d attempt=%d' % (block_index, attempt), LOG_WARNING)
         _log(
-          'ai translation block %d attempt %d/2 failed: %s'
-          % (block_index, attempt, exc),
+          'ai translation block %d attempt %d/%d failed: %s'
+          % (block_index, attempt, 2, exc),
           LOG_WARNING
         )
 
@@ -2757,13 +2822,13 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       except JobCancelled:
         raise
       except Exception as exc:
-        fallback_block_count += 1
-        translation_block_succeeded = False
-        translated_lines = request_lines
         _log(
-          'ai translation block %d failed after %d attempts; keeping source line: %s error=%s'
+          'ai translation block %d failed after %d attempts; stopping without writing output: %s error=%s'
           % (block_index, block_attempts[0], _as_text(request_lines[0]) if request_lines else '', exc),
           LOG_ERROR,
+        )
+        raise RuntimeError(
+          'AI translation failed at block %d after %d attempts.' % (block_index, block_attempts[0])
         )
       finally:
         _log_timing(
@@ -2783,20 +2848,17 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
 
-      if translation_block_succeeded:
-        translation_context['previous_source_lines'] = request_lines[-3:]
-        translation_context['previous_translated_lines'] = translated_lines[-2:]
+      translation_context['previous_source_lines'] = request_lines[-3:]
+      translation_context['previous_translated_lines'] = translated_lines[-2:]
       translated_count += len(chunk_lines)
       index += len(chunk_lines)
       _progress_update(progress, int((100.0 * translated_count) / total_lines), __language__(33064), '%d/%d' % (translated_count, total_lines))
 
     _log(
-      'ai translation summary: blocks=%d fallback_blocks=%d translated_lines=%d/%d'
-      % (block_index, fallback_block_count, translated_count, total_lines),
+      'ai translation summary: blocks=%d translated_lines=%d/%d'
+      % (block_index, translated_count, total_lines),
       LOG_INFO,
     )
-    if fallback_block_count:
-      _notify(__language__(33312) % (fallback_block_count), NOTIFY_WARNING)
 
     try:
       if progress.iscanceled():

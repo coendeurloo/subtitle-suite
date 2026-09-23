@@ -1123,7 +1123,7 @@ msgid "Where to show subtitles"
 msgstr ""
 
 msgctxt "#32518"
-msgid "Distance from screen edge"
+msgid "Bottom subtitle height (pixels)"
 msgstr ""
 
 msgctxt "#32519"
@@ -1196,4 +1196,16 @@ msgstr ""
 
 msgctxt "#32536"
 msgid "Could not read the subtitle font from Kodi settings."
+msgstr ""
+
+msgctxt "#32537"
+msgid "Positive numbers move the bottom subtitle up. Negative numbers move it down toward the bottom edge."
+msgstr ""
+
+msgctxt "#32538"
+msgid "Top subtitle height (pixels)"
+msgstr ""
+
+msgctxt "#32539"
+msgid "Positive numbers move the top subtitle down. Negative numbers move it up toward the top edge."
 msgstr ""

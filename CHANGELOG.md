@@ -1,6 +1,20 @@
 # Changelog
 
-## 2.9.17 — Unreleased
+## 2.9.20 — 2026-09-23
+
+### Easier menu and subtitle position settings
+
+- The actions you choose most often now move to the top of the menu.
+- Open Subtitle Suite settings from the context menu on any action.
+- The subtitle position settings now explain how positive and negative numbers move the text.
+
+### More reliable AI translation
+
+- Translation sends smaller blocks and retries temporary connection or server errors.
+- If a block still fails, translation stops safely and does not save a mixed-language subtitle.
+- A brief Kodi progress display issue no longer cancels a translation request.
+
+## Earlier changes
 
 ### Kodi subtitle-menu reliability
 
