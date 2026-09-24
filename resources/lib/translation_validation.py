@@ -80,6 +80,29 @@ def _looks_like_untranslated_english(source_line, translated_line, source_langua
   return (float(function_word_count) / len(words)) >= 0.60
 
 
+def _looks_like_unchanged_sentence(source_line, translated_line, source_language_code, target_language_code):
+    source_code = _as_text(source_language_code).lower().split('-', 1)[0]
+    target_code = _as_text(target_language_code).lower().split('-', 1)[0]
+    if source_code in ('', 'auto') or target_code in ('', 'auto') or source_code == target_code:
+        return False
+    if _visible_normalized_text(source_line) != _visible_normalized_text(translated_line):
+        return False
+    visible = _as_text(source_line).replace('\\N', ' ')
+    visible = re.sub(r'\{\\[^}]*\}|<[^>]+>', ' ', visible)
+    words = re.findall(r'[^\W\d_]+', visible, flags=re.UNICODE)
+    if len(words) < 3 or sum(len(word) for word in words) < 14:
+        return False
+    # Long proper names are often intentionally kept verbatim.
+    return not _looks_like_proper_name(source_line)
+
+
+def _looks_like_proper_name(source_line):
+    visible = _as_text(source_line).replace('\\N', ' ')
+    visible = re.sub(r'\{\\[^}]*\}|<[^>]+>', ' ', visible)
+    words = re.findall(r'[^\W\d_]+', visible, flags=re.UNICODE)
+    return len(words) >= 2 and all(word[0].isupper() for word in words)
+
+
 def _language_script(language_code):
     code = _as_text(language_code).lower().split('-', 1)[0]
     return LANGUAGE_SCRIPT.get(code, 'latin')
@@ -137,12 +160,20 @@ def validate_translation_block(source_lines, translated_lines, source_language_c
             'translation count mismatch: got=%d expected=%d' % (len(translated), len(source))
         )
 
+    for source_line, translated_line in zip(source, translated):
+        if _visible_normalized_text(source_line) and not _visible_normalized_text(translated_line):
+            raise TranslationValidationError('empty translation for a nonempty subtitle line')
+
     source_code = _as_text(source_language_code).lower().split('-', 1)[0]
     target_code = _as_text(target_language_code).lower().split('-', 1)[0]
     if source_code and source_code == target_code:
         return translated
 
     for source_line, translated_line in zip(source, translated):
+        if _looks_like_unchanged_sentence(
+            source_line, translated_line, source_language_code, target_language_code,
+        ):
+            raise _echo_error('untranslated sentence detected')
         if _looks_like_untranslated_english(
             source_line,
             translated_line,
@@ -164,6 +195,8 @@ def validate_translation_block(source_lines, translated_lines, source_language_c
         normalized_translation = _visible_normalized_text(translated_line)
         letter_count = sum(1 for character in normalized_source if character.isalpha())
         if letter_count < 4:
+            continue
+        if normalized_source == normalized_translation and _looks_like_proper_name(source_line):
             continue
         meaningful_count += 1
         if compare_scripts:

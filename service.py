@@ -59,6 +59,7 @@ OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS = 4000
 OPENAI_REQUEST_TIMEOUT_SECONDS = 90
 OPENAI_MAX_REQUEST_ATTEMPTS = 3
 OPENAI_RETRY_DELAYS_SECONDS = (2, 5)
+OPENAI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 FENCED_JSON_REGEX = re.compile(r'^```(?:json)?\s*(.*?)\s*```$', re.DOTALL)
 # Language code data lives in resources/lib/languages.py — imported below.
 from resources.lib.languages import (
@@ -72,6 +73,7 @@ from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import TranslationValidationError, translate_block_with_one_retry
 from resources.lib.translation_prompt import _build_translation_prompt
 from resources.lib.translation_batches import _split_translation_lines
+from resources.lib.subtitle_pair_picker import subtitle_matches_video, build_subtitle_pairs
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
 OPENAI_RESPONSE_FORMAT_SUPPORTED = None
@@ -280,6 +282,7 @@ MAIN_MENU_ACTIONS = (
   ('ifeelluckysingle', 33274),
   ('ifeelluckydual', 33275),
   ('browsedual', 33004),
+  ('changepair', 33313),
   ('smartsyncmanual', 33120),
   ('translatemanual', 33121),
   ('restorebackup', 33150),
@@ -1362,7 +1365,28 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     request.add_header('Authorization', 'Bearer %s' % (api_key))
     try:
       response = urlopen(request, timeout=timeout_seconds)
-      raw_response = response.read()
+      # Read incrementally so an active response is never cut off by an
+      # arbitrary wall-clock limit. The socket timeout still catches stalls.
+      response_parts = []
+      response_bytes = 0
+      try:
+        while True:
+          if hasattr(response, 'read1'):
+            part = response.read1(65536)
+          else:
+            part = response.read(65536)
+          if not part:
+            break
+          response_bytes += len(part)
+          if response_bytes > OPENAI_MAX_RESPONSE_BYTES:
+            raise RuntimeError('OpenAI response exceeded the size limit.')
+          response_parts.append(part)
+        raw_response = b''.join(response_parts)
+      finally:
+        try:
+          response.close()
+        except Exception:
+          pass
       if 'response_format' in request_payload:
         OPENAI_RESPONSE_FORMAT_SUPPORTED = True
       break
@@ -1417,6 +1441,10 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     raise RuntimeError('OpenAI returned no choices.')
 
   message = choices[0].get('message') or {}
+  if message.get('refusal'):
+    raise RuntimeError('OpenAI refused to translate this block.')
+  if choices[0].get('finish_reason') == 'length':
+    raise RuntimeError('OpenAI translation response was truncated.')
   message_content = message.get('content')
   try:
     payload = _extract_json_payload(message_content)
@@ -1429,6 +1457,8 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
 
   normalized = []
   for item in translations:
+    if not isinstance(item, str):
+      raise RuntimeError('OpenAI returned a non-text translation.')
     normalized.append(_as_text(item))
 
   return normalized
@@ -2392,10 +2422,16 @@ def _run_smart_sync_pipeline_impl(reference_path, target_path, allow_ai_fallback
           _log('smart sync ai stage failed: %s' % (exc), LOG_WARNING)
           ai_result = None
 
-        if ai_result is not None:
+        if ai_result is not None and not ai_result.get('low_confidence'):
           chosen_result = ai_result
           _notify(__language__(33102), NOTIFY_INFO)
         else:
+          if ai_result is not None:
+            _log(
+              'smart sync ai anchors did not pass confidence check: confidence=%.3f p90=%s'
+              % (ai_result.get('confidence', 0.0), ai_result.get('p90_error_ms', 0)),
+              LOG_WARNING,
+            )
           fallback_choice = __msg_box__.select(__language__(33105), [__language__(33110), __language__(33114), __language__(33112)])
           if fallback_choice == 1:
             _close_progress(progress)
@@ -2742,7 +2778,11 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
     translated_count = 0
     total_lines = len(subtitle_lines)
-    index = 0
+    total_characters = max(1, sum(len(_as_text(line.text)) for line in subtitle_lines))
+    translated_characters = 0
+    pending_chunks = _split_translation_lines(
+      subtitle_lines, batch_size, OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS
+    )
     block_index = 0
     metadata = _current_video_metadata()
     _, video_basename = _current_video_context()
@@ -2760,7 +2800,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       'previous_source_lines': [],
       'previous_translated_lines': [],
     }
-    while index < total_lines:
+    _progress_update(progress, 0, __language__(33064), '0/%d' % total_lines)
+    while pending_chunks:
       try:
         if progress.iscanceled():
           raise RuntimeError(__language__(33072))
@@ -2769,10 +2810,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       except Exception:
         pass
 
-      remaining_lines = subtitle_lines[index:]
-      chunk_lines = _split_translation_lines(
-        remaining_lines, batch_size, OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS
-      )[0]
+      chunk_lines = pending_chunks.pop(0)
       request_lines = []
       for item in chunk_lines:
         request_lines.append(_as_text(item.text))
@@ -2803,6 +2841,10 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
       def _record_translation_block_failure(attempt, exc):
         block_attempts[0] = attempt
+        _progress_update(
+          progress, int((99.0 * translated_characters) / total_characters),
+          __language__(33064), '%d/%d (%d/2)' % (translated_count, total_lines, min(attempt + 1, 2)),
+        )
         if isinstance(exc, TranslationValidationError) and getattr(exc, 'source_echo_check_fired', False):
           _log('ai translation source-echo check fired: block=%d attempt=%d' % (block_index, attempt), LOG_WARNING)
         _log(
@@ -2822,6 +2864,16 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       except JobCancelled:
         raise
       except Exception as exc:
+        source_echo = isinstance(exc, TranslationValidationError) and getattr(exc, 'source_echo_check_fired', False)
+        if len(chunk_lines) > 1 and not source_echo:
+          midpoint = len(chunk_lines) // 2
+          pending_chunks[0:0] = [chunk_lines[:midpoint], chunk_lines[midpoint:]]
+          _log(
+            'ai translation block %d failed after %d attempts; splitting %d lines into %d and %d: %s'
+            % (block_index, block_attempts[0], len(chunk_lines), midpoint, len(chunk_lines) - midpoint, exc),
+            LOG_WARNING,
+          )
+          continue
         _log(
           'ai translation block %d failed after %d attempts; stopping without writing output: %s error=%s'
           % (block_index, block_attempts[0], _as_text(request_lines[0]) if request_lines else '', exc),
@@ -2851,8 +2903,8 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       translation_context['previous_source_lines'] = request_lines[-3:]
       translation_context['previous_translated_lines'] = translated_lines[-2:]
       translated_count += len(chunk_lines)
-      index += len(chunk_lines)
-      _progress_update(progress, int((100.0 * translated_count) / total_lines), __language__(33064), '%d/%d' % (translated_count, total_lines))
+      translated_characters += sum(len(line) for line in request_lines)
+      _progress_update(progress, int((99.0 * translated_characters) / total_characters), __language__(33064), '%d/%d' % (translated_count, total_lines))
 
     _log(
       'ai translation summary: blocks=%d translated_lines=%d/%d'
@@ -2879,6 +2931,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       raise RuntimeError(__language__(33071))
 
     _log('ai translation wrote subtitle=%s model=%s' % (translated_path, model), LOG_INFO)
+    _progress_update(progress, 100, __language__(33064), '%d/%d' % (translated_count, total_lines))
     return translated_path
   finally:
     if progress is not None:
@@ -7018,6 +7071,46 @@ def _run_dual_subtitle_flow():
     smart_sync_temp_files=smart_sync_temp_files
   )
 
+def _run_change_subtitle_pair_action():
+  video_dir, video_basename = _current_video_context()
+  if not video_dir or not video_basename:
+    _notify(__language__(33314), NOTIFY_WARNING)
+    return
+
+  subtitle_paths = [
+    path for path in _list_srt_files(video_dir, include_generated=True)
+    if subtitle_matches_video(video_basename, path)
+  ]
+  entries = []
+  for path in subtitle_paths:
+    code = _detect_language_from_filename(path) or _detect_language_from_content(path) or 'unk'
+    entries.append({'path': path, 'code': code})
+
+  pairs = build_subtitle_pairs(entries, (
+    _parse_language_code('preferred_language_1'),
+    _parse_language_code('preferred_language_2'),
+  ))
+  if not pairs:
+    _notify(__language__(33315), NOTIFY_WARNING)
+    return
+
+  options = []
+  for first, second in pairs:
+    first_name = _build_compact_display_name(os.path.basename(first['path']), 40, 16)
+    second_name = _build_compact_display_name(os.path.basename(second['path']), 40, 16)
+    options.append('[%s] %s + [%s] %s' % (
+      first['code'].upper(), first_name, second['code'].upper(), second_name,
+    ))
+
+  selected = __msg_box__.select(__language__(33313), options)
+  if selected is None or selected < 0 or selected >= len(pairs):
+    return
+  first, second = pairs[selected]
+  _log('changed subtitle pair: first=%s second=%s' % (first['path'], second['path']), LOG_INFO)
+  _finalize_selected_subtitle_paths(
+    first['path'], second['path'], subtitle1_dir=video_dir,
+  )
+
 action = params.get('action', 'search')
 ACTION_STARTED_AT = time.monotonic()
 
@@ -7033,6 +7126,10 @@ elif action == 'search':
 elif action == 'browsedual':
   _ensure_runtime_bootstrap()
   _run_dual_subtitle_flow()
+
+elif action == 'changepair':
+  _ensure_runtime_bootstrap()
+  _run_change_subtitle_pair_action()
 
 elif action == 'downloadmanual':
   _ensure_runtime_bootstrap()

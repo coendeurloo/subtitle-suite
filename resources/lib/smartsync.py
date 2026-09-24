@@ -791,6 +791,10 @@ def sync_from_anchor_pairs(reference_subs, target_subs, anchor_pairs):
     target_lookup, _, _ = _point_lookup(target_points)
 
     anchor_knots = []
+    used_reference_ids = set()
+    used_target_ids = set()
+    previous_reference_start = None
+    previous_target_start = None
     for pair in anchor_pairs:
         try:
             reference_id = int(pair.get('reference_id'))
@@ -803,14 +807,25 @@ def sync_from_anchor_pairs(reference_subs, target_subs, anchor_pairs):
         if reference_point is None or target_point is None:
             continue
 
+        if reference_id in used_reference_ids or target_id in used_target_ids:
+            raise RuntimeError('AI alignment reused a subtitle cue.')
+        if (previous_reference_start is not None and
+                (reference_point['start'] <= previous_reference_start or
+                 target_point['start'] <= previous_target_start)):
+            raise RuntimeError('AI alignment anchors are out of timeline order.')
+        used_reference_ids.add(reference_id)
+        used_target_ids.add(target_id)
+        previous_reference_start = reference_point['start']
+        previous_target_start = target_point['start']
+
         anchor_knots.append({
             'time': float(target_point['start']),
             'offset': float(reference_point['start'] - target_point['start']),
             'count': 1,
         })
 
-    if not anchor_knots:
-        raise RuntimeError('No valid anchor pairs returned.')
+    if len(anchor_knots) < 3:
+        raise RuntimeError('AI alignment needs at least three valid anchor pairs.')
 
     anchor_knots.sort(key=lambda knot: knot['time'])
 
@@ -823,21 +838,19 @@ def sync_from_anchor_pairs(reference_subs, target_subs, anchor_pairs):
             deduped[-1]['offset'] = merged_offset
             deduped[-1]['count'] += 1
 
-    if len(deduped) == 1:
-        deduped.append({
-            'time': deduped[0]['time'] + WINDOW_STEP_MS,
-            'offset': deduped[0]['offset'],
-            'count': deduped[0]['count'],
-        })
-
     synced_subs = _apply_knots(target_subs, deduped)
     synced_points = _subtitle_points(synced_subs)
     metrics = _evaluate_alignment(reference_points, synced_points)
+    knot_quality = _knot_instability(deduped)
     metrics.update({
         'method': 'ai_anchor',
         'estimated_global_offset_ms': int(round(_median([k['offset'] for k in deduped]))),
         'knots': [{'time': int(round(k['time'])), 'offset': int(round(k['offset'])), 'count': int(k['count'])} for k in deduped],
+        'knot_max_jump_ms': knot_quality['max_jump_ms'],
+        'knot_span_ms': knot_quality['span_ms'],
         'synced_subs': synced_subs,
-        'low_confidence': metrics['confidence'] < LOW_CONFIDENCE_THRESHOLD,
+        'low_confidence': (metrics['confidence'] < LOW_CONFIDENCE_THRESHOLD or
+                           metrics['p90_error_ms'] >= LOCAL_SYNC_P90_LOW_CONFIDENCE_MS or
+                           knot_quality['unstable']),
     })
     return metrics

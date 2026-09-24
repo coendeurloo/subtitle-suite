@@ -23,9 +23,15 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 - `I Feel Lucky: One Subtitle...`
 - `I Feel Lucky: Two Subtitles...`
 - `Choose Two Subtitle Files...`
+- `Change subtitle pair...`
 - `Fix Subtitle Timing (Manual)...`
 - `Translate Subtitle (Manual)...`
 - `Restore Previous Subtitle...`
+
+Use **Change subtitle pair...** while a movie or episode is playing to choose
+another two-language combination from its subtitle files. The list only shows
+files for that movie or episode, and switching applies the selected pair
+immediately.
 
 ### Opening settings
 

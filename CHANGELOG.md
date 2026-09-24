@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.9.21 — 2026-09-24
+
+- Added **Change subtitle pair...** for quickly choosing two available subtitle files for the current movie or episode.
+- Improved AI translation validation, recovery from failed batches, and progress reporting.
+- Removed the fixed overall deadline for an active AI translation request; stalled network operations still time out and retry.
+- Added stricter checks for AI SmartSync anchor points.
+
 ## 2.9.20 — 2026-09-23
 
 ### Easier menu and subtitle position settings

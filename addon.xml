@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.subtitlesuite"
        name="Subtitle Suite"
-       version="2.9.20"
+       version="2.9.21"
        provider-name="coendeurloo">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -21,6 +21,12 @@ The addon opens from the subtitle search screen and supports:
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
     <news>
+2.9.21 (2026-09-24)
+- Change subtitle pair directly from the subtitle menu using files for the current movie or episode
+- More reliable AI translation recovery and a progress bar based on completed text
+- AI translation has no fixed total time limit; stalled network requests still retry
+- AI timing alignment rejects implausible anchor matches
+
 2.9.20 (2026-09-23)
 - Frequently used actions move to the top of the menu
 - Add-on settings are available from the menu context options

@@ -22,6 +22,10 @@ class TranslationValidationTests(unittest.TestCase):
 
         self.assertIn('count mismatch', str(error.exception))
 
+    def test_empty_translation_is_rejected(self):
+        with self.assertRaises(TranslationValidationError):
+            validate_translation_block(['I am here'], ['   '], 'en', 'nl')
+
     def test_unchanged_meaningful_block_is_rejected(self):
         with self.assertRaises(TranslationValidationError) as error:
             validate_translation_block(['Hello there', 'How are you?'], ['Hello there', 'How are you?'])
@@ -96,6 +100,18 @@ class TranslationValidationTests(unittest.TestCase):
                 'en',
                 'nl',
             )
+
+    def test_one_unchanged_sentence_in_translated_block_is_rejected(self):
+        with self.assertRaises(TranslationValidationError):
+            validate_translation_block(
+                ['Good morning everybody', 'I will come tomorrow'],
+                ['Good morning everybody', 'Ik kom morgen'],
+                'en', 'nl',
+            )
+
+    def test_long_proper_name_can_remain_unchanged(self):
+        source = ['New York City Police Department']
+        self.assertEqual(source, validate_translation_block(source, source, 'en', 'nl'))
 
     def test_natural_dutch_line_passes_for_dutch(self):
         translated = ['Ik ben hier en jij bent daar']

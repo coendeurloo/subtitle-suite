@@ -278,6 +278,18 @@ msgctxt "#33312"
 msgid "AI translation kept the source language for %d block(s)."
 msgstr ""
 
+msgctxt "#33313"
+msgid "Change subtitle pair..."
+msgstr ""
+
+msgctxt "#33314"
+msgid "Play a movie or episode from a folder first."
+msgstr ""
+
+msgctxt "#33315"
+msgid "At least two subtitles for this movie or episode are needed."
+msgstr ""
+
 msgctxt "#33073"
 msgid "AI timeout (seconds)"
 msgstr ""
