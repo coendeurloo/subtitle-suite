@@ -28,6 +28,10 @@ class TranslationValidationError(RuntimeError):
     """Raised when a translation response is unsafe to apply."""
 
 
+class TranslationRequestError(RuntimeError):
+    """A failed connection/API request, already retried by the network client."""
+
+
 def _as_text(value):
     if value is None:
         return u''
@@ -227,7 +231,7 @@ def translate_block_with_one_retry(source_lines, request_translation, on_attempt
                 source_language_code=source_language_code,
                 target_language_code=target_language_code,
             )
-        except JobCancelled:
+        except (JobCancelled, TranslationRequestError):
             raise
         except Exception as exc:
             if on_attempt_failure is not None:

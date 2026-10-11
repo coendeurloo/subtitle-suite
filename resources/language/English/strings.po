@@ -290,6 +290,18 @@ msgctxt "#33315"
 msgid "At least two subtitles for this movie or episode are needed."
 msgstr ""
 
+msgctxt "#33316"
+msgid "%d/%d lines translated; waiting for AI (%ds)"
+msgstr ""
+
+msgctxt "#33317"
+msgid "%d/%d lines translated; connection retry %d/%d (%ds)"
+msgstr ""
+
+msgctxt "#33318"
+msgid "%s[CR]Try translating again to continue from saved progress."
+msgstr ""
+
 msgctxt "#33073"
 msgid "AI timeout (seconds)"
 msgstr ""

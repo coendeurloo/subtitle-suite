@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.9.22 — 2026-10-10
+
+- Kodi stays awake while an AI subtitle translation is running.
+- The progress window shows how many lines are done and how long it has waited.
+- Cancel works while the plugin is waiting for a reply.
+- If the connection fails, the next try continues where it stopped.
+- A connection problem no longer starts many extra retries.
+
 ## 2.9.21 — 2026-09-24
 
 - Added **Change subtitle pair...** for quickly choosing two available subtitle files for the current movie or episode.

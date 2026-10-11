@@ -70,7 +70,11 @@ from resources.lib.languages import (
 from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
 from resources.lib.background_jobs import CancellableJob, JobCancelled
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
-from resources.lib.translation_validation import TranslationValidationError, translate_block_with_one_retry
+from resources.lib.translation_validation import (
+  TranslationValidationError, TranslationRequestError,
+  translate_block_with_one_retry, validate_translation_block,
+)
+from resources.lib.translation_checkpoint import TranslationCheckpoint
 from resources.lib.translation_prompt import _build_translation_prompt
 from resources.lib.translation_batches import _split_translation_lines
 from resources.lib.subtitle_pair_picker import subtitle_matches_video, build_subtitle_pairs
@@ -1250,13 +1254,9 @@ def _progress_update(progress, percent, line1='', line2=''):
     percent = 100
 
   try:
-    progress.update(percent, line1, line2)
-    return
-  except Exception:
-    pass
-
-  try:
-    progress.update(percent, line1)
+    # Kodi 19+ accepts one message. Passing separate lines raises TypeError
+    # and previously discarded the counts/retry information on fallback.
+    progress.update(percent, '[CR]'.join([line for line in (line1, line2) if line]))
     return
   except Exception:
     pass
@@ -1266,9 +1266,20 @@ def _progress_update(progress, percent, line1='', line2=''):
   except Exception:
     pass
 
-def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.', poll_cancel=True):
+def _wait_for_network_job(job, progress=None, cancel_message='Action cancelled.', poll_cancel=True, on_poll=None):
   """Poll a worker from Kodi's UI thread and discard work after cancellation."""
+  monitor_factory = getattr(xbmc, 'Monitor', None)
+  monitor = monitor_factory() if monitor_factory is not None else None
   while not job.is_done():
+    if monitor is not None and monitor.abortRequested():
+      job.cancel()
+      raise JobCancelled(cancel_message)
+    if on_poll is not None:
+      try:
+        on_poll()
+      except Exception:
+        job.cancel()
+        raise
     if poll_cancel:
       try:
         if progress is not None and progress.iscanceled():
@@ -1315,7 +1326,7 @@ def _openai_retry_delay(attempt_index):
   return OPENAI_RETRY_DELAYS_SECONDS[-1]
 
 
-def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None):
+def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None, cancel_event=None, progress_callback=None):
   global OPENAI_RESPONSE_FORMAT_SUPPORTED
   system_prompt, user_prompt = _build_translation_prompt(
     lines, source_language_code, target_language_code, context=context
@@ -1358,7 +1369,20 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     }
 
   raw_response = None
+  def check_cancelled():
+    if cancel_event is not None and cancel_event.is_set():
+      raise JobCancelled()
+
+  def retry_wait(delay):
+    if cancel_event is None:
+      time.sleep(delay)
+    elif cancel_event.wait(delay):
+      raise JobCancelled()
+
   for request_attempt in range(OPENAI_MAX_REQUEST_ATTEMPTS):
+    check_cancelled()
+    if progress_callback is not None:
+      progress_callback(request_attempt + 1)
     request_data = _to_utf8_bytes(json.dumps(request_payload, ensure_ascii=False))
     request = Request(OPENAI_CHAT_ENDPOINT, data=request_data)
     request.add_header('Content-Type', 'application/json')
@@ -1371,6 +1395,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
       response_bytes = 0
       try:
         while True:
+          check_cancelled()
           if hasattr(response, 'read1'):
             part = response.read1(65536)
           else:
@@ -1408,10 +1433,10 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
           % (getattr(exc, 'code', 'unknown'), request_attempt + 1, OPENAI_MAX_REQUEST_ATTEMPTS, delay),
           LOG_WARNING,
         )
-        time.sleep(delay)
+        retry_wait(delay)
         continue
       _log('openai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
-      raise RuntimeError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
+      raise TranslationRequestError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
     except (URLError, TimeoutError, OSError) as exc:
       if request_attempt + 1 < OPENAI_MAX_REQUEST_ATTEMPTS:
         delay = _openai_retry_delay(request_attempt)
@@ -1420,16 +1445,19 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
           % (exc, request_attempt + 1, OPENAI_MAX_REQUEST_ATTEMPTS, delay),
           LOG_WARNING,
         )
-        time.sleep(delay)
+        retry_wait(delay)
         continue
       _log('openai request network error after %d attempts: %s' % (OPENAI_MAX_REQUEST_ATTEMPTS, exc), LOG_ERROR)
-      raise RuntimeError('OpenAI request failed (network error).')
+      raise TranslationRequestError('OpenAI request failed (network error).')
+    except JobCancelled:
+      raise
     except Exception as exc:
       _log('openai request unexpected error: %s' % (exc), LOG_ERROR)
-      raise RuntimeError('OpenAI request failed.')
+      raise TranslationRequestError('OpenAI request failed.')
 
   if raw_response is None:
-    raise RuntimeError('OpenAI request failed without a response.')
+    raise TranslationRequestError('OpenAI request failed without a response.')
+  check_cancelled()
 
   try:
     response_payload = json.loads(_as_text(raw_response))
@@ -2743,6 +2771,33 @@ def _load_pysubs2():
     from resources.lib import pysubs2
   return pysubs2
 
+def _create_translation_checkpoint(temp_source, source_path, source_code, target_code, model):
+  return TranslationCheckpoint(
+    os.path.join(__profile__, 'translation_progress'),
+    temp_source, source_path, source_code, target_code, model,
+  )
+
+def _keep_translation_awake():
+  # Reset only while translating; no persistent settings or global inhibit
+  # flag to leave behind if Kodi terminates the script.
+  try:
+    xbmc.executebuiltin('ResetScreensaver')
+  except Exception:
+    pass
+
+def _translation_status(message_id, *values):
+  # Kodi may cache the old language file after a live add-on update. Missing
+  # or outdated labels must never abort a running network worker.
+  fallbacks = {
+    33316: '%d/%d lines translated; waiting for AI (%ds)',
+    33317: '%d/%d lines translated; connection retry %d/%d (%ds)',
+    33318: '%s[CR]Try translating again to continue from saved progress.',
+  }
+  try:
+    return __language__(message_id) % values
+  except (TypeError, ValueError):
+    return fallbacks[message_id] % values
+
 def _translate_subtitle_file(source_subtitle_path, source_language_code, target_language_code):
   api_key = _get_openai_api_key()
   if not api_key:
@@ -2755,6 +2810,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
   temp_source = ''
   temp_output = ''
   progress = None
+  checkpoint = None
   try:
     pysubs2 = _load_pysubs2()
     temp_source = _copy_subtitle_to_temp(source_subtitle_path)
@@ -2773,15 +2829,32 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     if len(subtitle_lines) == 0:
       raise RuntimeError('No subtitle lines available for translation.')
 
+    source_texts = [_as_text(line.text) for line in subtitle_lines]
+    completed_translations = []
+    try:
+      checkpoint = _create_translation_checkpoint(
+        temp_source, source_subtitle_path, source_language_code, target_language_code, model,
+      )
+      cached = checkpoint.load()
+      if cached and len(cached) <= len(source_texts):
+        completed_translations = validate_translation_block(
+          source_texts[:len(cached)], cached, source_language_code, target_language_code,
+        )
+    except Exception as exc:
+      _log('ai translation checkpoint unavailable: %s' % exc, LOG_WARNING)
+
+    _keep_translation_awake()
     progress = xbmcgui.DialogProgress()
     progress.create(__scriptname__, __language__(33064))
 
-    translated_count = 0
+    translated_count = len(completed_translations)
+    for index, translated_text in enumerate(completed_translations):
+      subtitle_lines[index].text = translated_text
     total_lines = len(subtitle_lines)
-    total_characters = max(1, sum(len(_as_text(line.text)) for line in subtitle_lines))
-    translated_characters = 0
+    total_characters = max(1, sum(len(text) for text in source_texts))
+    translated_characters = sum(len(text) for text in source_texts[:translated_count])
     pending_chunks = _split_translation_lines(
-      subtitle_lines, batch_size, OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS
+      subtitle_lines[translated_count:], batch_size, OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS
     )
     block_index = 0
     metadata = _current_video_metadata()
@@ -2797,14 +2870,16 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       'genre': metadata.get('genre', ''),
       'plot': metadata.get('plot', ''),
       'cast': metadata.get('cast', []),
-      'previous_source_lines': [],
-      'previous_translated_lines': [],
+      'previous_source_lines': source_texts[max(0, translated_count - 3):translated_count],
+      'previous_translated_lines': completed_translations[-2:],
     }
-    _progress_update(progress, 0, __language__(33064), '0/%d' % total_lines)
+    if translated_count:
+      _log('ai translation resumed: translated_lines=%d/%d' % (translated_count, total_lines), LOG_INFO)
+    _progress_update(progress, int((99.0 * translated_characters) / total_characters), __language__(33064), '%d/%d' % (translated_count, total_lines))
     while pending_chunks:
       try:
         if progress.iscanceled():
-          raise RuntimeError(__language__(33072))
+          raise JobCancelled(__language__(33072))
       except RuntimeError:
         raise
       except Exception:
@@ -2819,6 +2894,26 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       block_started_at = time.monotonic()
       block_attempts = [1]
       def _request_translation_block():
+        request_status = {'attempt': 1, 'started_at': time.monotonic()}
+        last_update = [0.0]
+        def _request_attempt_started(attempt):
+          request_status.update(attempt=attempt, started_at=time.monotonic())
+
+        def _poll_translation():
+          now = time.monotonic()
+          if now - last_update[0] < 1.0:
+            return
+          last_update[0] = now
+          _keep_translation_awake()
+          elapsed = int(now - request_status['started_at'])
+          if request_status['attempt'] > 1:
+            message = _translation_status(33317,
+              translated_count, total_lines, request_status['attempt'], OPENAI_MAX_REQUEST_ATTEMPTS, elapsed,
+            )
+          else:
+            message = _translation_status(33316, translated_count, total_lines, elapsed)
+          _progress_update(progress, int((99.0 * translated_characters) / total_characters), __language__(33064), message)
+
         def _translate_worker(cancel_event):
           if cancel_event.is_set():
             raise JobCancelled()
@@ -2830,14 +2925,12 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
             model,
             timeout_seconds,
             context=translation_context,
+            cancel_event=cancel_event,
+            progress_callback=_request_attempt_started,
           )
 
         job = CancellableJob(_translate_worker).start()
-        # A few Kodi skins make DialogProgress briefly invisible while a video
-        # is playing.  Do not interpret that rendering glitch as a user
-        # cancellation while an HTTP request is in flight.  Cancellation is
-        # still checked immediately before and after each block.
-        return _wait_for_network_job(job, progress, __language__(33072), poll_cancel=False)
+        return _wait_for_network_job(job, progress, __language__(33072), on_poll=_poll_translation)
 
       def _record_translation_block_failure(attempt, exc):
         block_attempts[0] = attempt
@@ -2863,6 +2956,11 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
         )
       except JobCancelled:
         raise
+      except TranslationRequestError as exc:
+        # Shrinking a block cannot repair an exhausted connection failure or
+        # invalid API key. Avoid recursively multiplying the network retries.
+        _log('ai translation paused at block %d: %s' % (block_index, exc), LOG_WARNING)
+        raise TranslationRequestError(_translation_status(33318, _as_text(exc)))
       except Exception as exc:
         source_echo = isinstance(exc, TranslationValidationError) and getattr(exc, 'source_echo_check_fired', False)
         if len(chunk_lines) > 1 and not source_echo:
@@ -2891,7 +2989,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
       try:
         if progress.iscanceled():
-          raise RuntimeError(__language__(33072))
+          raise JobCancelled(__language__(33072))
       except RuntimeError:
         raise
       except Exception:
@@ -2900,6 +2998,12 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       for item_index in range(len(chunk_lines)):
         chunk_lines[item_index].text = translated_lines[item_index]
 
+      completed_translations.extend(translated_lines)
+      if checkpoint is not None:
+        try:
+          checkpoint.save(completed_translations)
+        except Exception as exc:
+          _log('ai translation checkpoint save failed: %s' % exc, LOG_WARNING)
       translation_context['previous_source_lines'] = request_lines[-3:]
       translation_context['previous_translated_lines'] = translated_lines[-2:]
       translated_count += len(chunk_lines)
@@ -2914,7 +3018,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
     try:
       if progress.iscanceled():
-        raise RuntimeError(__language__(33072))
+        raise JobCancelled(__language__(33072))
     except RuntimeError:
       raise
     except Exception:
@@ -2932,9 +3036,15 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
 
     _log('ai translation wrote subtitle=%s model=%s' % (translated_path, model), LOG_INFO)
     _progress_update(progress, 100, __language__(33064), '%d/%d' % (translated_count, total_lines))
+    if checkpoint is not None:
+      try:
+        checkpoint.clear()
+      except Exception as exc:
+        _log('ai translation checkpoint cleanup failed: %s' % exc, LOG_WARNING)
     return translated_path
   finally:
     if progress is not None:
+      _keep_translation_awake()
       try:
         progress.close()
       except Exception:
@@ -3133,6 +3243,14 @@ def _run_manual_translation_action():
       created.append((target, translated_path))
       _notify(__language__(33065) % (target['label'], os.path.basename(translated_path)), NOTIFY_INFO)
       _log('manual translation created: target=%s path=%s' % (target['code'], translated_path), LOG_INFO)
+    except JobCancelled:
+      _notify(__language__(33072), NOTIFY_INFO)
+      _log('manual translation cancelled; completed blocks kept for resume', LOG_INFO)
+      break
+    except TranslationRequestError as exc:
+      _notify(_as_text(exc).replace('[CR]', ' '), NOTIFY_WARNING, timeout=8000)
+      _log('manual translation paused for %s: %s' % (target['code'], exc), LOG_WARNING)
+      break
     except Exception as exc:
       _notify(__language__(33066), NOTIFY_WARNING)
       _log('manual translation failed for %s: %s' % (target['code'], exc), LOG_WARNING)

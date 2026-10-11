@@ -5,8 +5,10 @@ import json
 import importlib
 import sys
 import types
+import threading
 import unittest
 from urllib.error import HTTPError
+from unittest.mock import patch
 
 
 def _install_kodi_stubs():
@@ -193,6 +195,88 @@ class OpenAITranslationRequestTests(unittest.TestCase):
     self.assertEqual([10, 10], calls)
     self.assertTrue(any('transient network error' in message for message, _ in logs))
 
+  def test_exhausted_network_errors_are_identified_without_extra_block_retries(self):
+    calls = []
+    def fail(request, timeout):
+      calls.append(timeout)
+      raise TimeoutError('stalled')
+    service.urlopen = fail
+    service.time.sleep = lambda seconds: None
+    with self.assertRaises(service.TranslationRequestError):
+      service._openai_translate_lines(['Hello'], 'en', 'nl', 'key', 'model', 10)
+    self.assertEqual(service.OPENAI_MAX_REQUEST_ATTEMPTS, len(calls))
+
+  def test_cancelled_retry_stops_before_next_http_request(self):
+    calls = []
+    cancelled = threading.Event()
+    def fail(request, timeout):
+      calls.append(timeout)
+      cancelled.set()
+      raise TimeoutError('stalled')
+    service.urlopen = fail
+    with self.assertRaises(service.JobCancelled):
+      service._openai_translate_lines(['Hello'], 'en', 'nl', 'key', 'model', 10, cancel_event=cancelled)
+    self.assertEqual([10], calls)
+
+  def test_invalid_api_key_does_not_retry(self):
+    calls = []
+    def fail(request, timeout):
+      calls.append(timeout)
+      raise HTTPError(request.full_url, 401, 'Unauthorized', {}, io.BytesIO(b'{}'))
+    service.urlopen = fail
+    with self.assertRaises(service.TranslationRequestError):
+      service._openai_translate_lines(['Hello'], 'en', 'nl', 'key', 'model', 10)
+    self.assertEqual([10], calls)
+
+
+class TranslationProgressTests(unittest.TestCase):
+  def test_cached_old_language_file_cannot_abort_live_translation(self):
+    with patch.object(service, '__language__', lambda message_id: ''):
+      self.assertIn('10/90', service._translation_status(33316, 10, 90, 5))
+      self.assertIn('retry 2/3', service._translation_status(33317, 10, 90, 2, 3, 5))
+      self.assertIn('saved progress', service._translation_status(33318, 'Connection failed'))
+
+  def test_kodi_21_receives_counts_and_status_in_one_message(self):
+    messages = []
+    class Progress:
+      def update(self, percent, message):
+        messages.append((percent, message))
+    service._progress_update(Progress(), 42, 'Translating', '420/1000; retrying')
+    self.assertEqual([(42, 'Translating[CR]420/1000; retrying')], messages)
+
+  def test_cancel_button_discards_a_stalled_request_promptly(self):
+    release = threading.Event()
+    job = service.CancellableJob(lambda cancelled: release.wait(2)).start()
+    try:
+      with self.assertRaises(service.JobCancelled):
+        service._wait_for_network_job(job, types.SimpleNamespace(iscanceled=lambda: True))
+      self.assertTrue(job.cancel_event.is_set())
+    finally:
+      release.set()
+      job.wait(1)
+
+  def test_poll_updates_run_while_network_is_waiting(self):
+    release = threading.Event()
+    job = service.CancellableJob(lambda cancelled: release.wait(2)).start()
+    polls = []
+    def on_poll():
+      polls.append(True)
+      release.set()
+    service._wait_for_network_job(job, on_poll=on_poll)
+    self.assertTrue(polls)
+
+  def test_poll_failure_cancels_worker_before_ui_unwinds(self):
+    release = threading.Event()
+    job = service.CancellableJob(lambda cancelled: release.wait(2)).start()
+    def fail():
+      raise ValueError('UI failed')
+    try:
+      with self.assertRaises(ValueError):
+        service._wait_for_network_job(job, on_poll=fail)
+      self.assertTrue(job.cancel_event.is_set())
+    finally:
+      release.set()
+      job.wait(1)
 
 class _SubtitleLine(object):
   def __init__(self, text):
@@ -223,7 +307,7 @@ class _Progress(object):
 
 
 class SubtitleTranslationBlockTests(unittest.TestCase):
-  def _run_translation(self, translation_response, line_texts=None):
+  def _run_translation(self, translation_response, line_texts=None, checkpoint=None, progress_class=_Progress):
     if line_texts is None:
       line_texts = ['line %d' % index for index in range(1, 6)]
     data = _SubtitleData([_SubtitleLine(text) for text in line_texts])
@@ -236,7 +320,7 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
       originals[name] = getattr(service, name)
       setattr(service, name, value)
 
-    def fake_translate(lines, source_code, target_code, api_key, model, timeout, context=None):
+    def fake_translate(lines, source_code, target_code, api_key, model, timeout, context=None, **kwargs):
       contexts.append({
         'request': list(lines),
         'previous_translated_lines': list(context.get('previous_translated_lines') or []),
@@ -247,6 +331,7 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
     patch('_get_openai_model', lambda: 'model')
     patch('_get_translation_batch_size', lambda: 2)
     patch('_get_translation_timeout_seconds', lambda: 10)
+    patch('_create_translation_checkpoint', lambda *args: checkpoint)
     patch('_load_pysubs2', lambda: types.SimpleNamespace(load=lambda *args, **kwargs: data))
     patch('_copy_subtitle_to_temp', lambda path: 'source.srt')
     patch('_detect_text_encoding', lambda path: 'utf-8')
@@ -266,8 +351,11 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
       33064: 'Translating',
       33072: 'AI translation cancelled.',
       33312: 'AI translation kept the source language for %d block(s).',
+      33316: '%d/%d lines translated; waiting for AI (%ds)',
+      33317: '%d/%d lines translated; connection retry %d/%d (%ds)',
+      33318: '%s Try translating again to continue from saved progress.',
     }.get(message_id, str(message_id)))
-    patch('xbmcgui', types.SimpleNamespace(DialogProgress=_Progress))
+    patch('xbmcgui', types.SimpleNamespace(DialogProgress=progress_class))
     patch('OPENAI_RESPONSE_FORMAT_SUPPORTED', True)
     patch('xbmcvfs', types.SimpleNamespace(delete=lambda path: True))
 
@@ -336,6 +424,45 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
     self.assertEqual(0, progress_updates[0])
     self.assertGreater(progress_updates[1], 90)
     self.assertEqual(100, progress_updates[-1])
+
+  def test_network_failure_preserves_progress_and_resumes_without_retranslating(self):
+    class Checkpoint:
+      translations = []
+      cleared = False
+      def load(self):
+        return self.translations[:]
+      def save(self, translations):
+        self.translations = translations[:]
+      def clear(self):
+        self.cleared = True
+    checkpoint = Checkpoint()
+    requests = []
+    def fail_midway(lines):
+      requests.append(list(lines))
+      if lines[0] == 'line 3':
+        raise service.TranslationRequestError('connection failed')
+      return ['vertaald ' + line for line in lines]
+    with self.assertRaisesRegex(RuntimeError, 'saved progress'):
+      self._run_translation(fail_midway, checkpoint=checkpoint)
+    self.assertEqual([['line 1', 'line 2'], ['line 3', 'line 4']], requests)
+    self.assertEqual(['vertaald line 1', 'vertaald line 2'], checkpoint.translations)
+    self.assertFalse(checkpoint.cleared)
+    data, _, _, contexts, result, progress = self._run_translation(
+      lambda lines: ['vertaald ' + line for line in lines], checkpoint=checkpoint,
+    )
+    self.assertEqual(['line 3', 'line 4'], contexts[0]['request'])
+    self.assertEqual(['vertaald line 1', 'vertaald line 2'], contexts[0]['previous_translated_lines'])
+    self.assertTrue(checkpoint.cleared)
+    self.assertTrue(data.saved)
+    self.assertGreater(progress[0], 0)
+    self.assertEqual(100, progress[-1])
+
+  def test_translation_keeps_screen_awake_and_restores_normal_idle_behavior(self):
+    commands = []
+    with patch.object(service.xbmc, 'executebuiltin', commands.append, create=True):
+      self._run_translation(lambda lines: ['vertaald ' + line for line in lines])
+    self.assertGreaterEqual(commands.count('ResetScreensaver'), 2)
+    self.assertTrue(all(command == 'ResetScreensaver' for command in commands))
 
 
 class ChangeSubtitlePairActionTests(unittest.TestCase):
