@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.9.26 — 2026-10-11
+
+- Subtitle searches now hide results for other movies. OpenSubtitles can return unrelated films that share a year or words in the title.
+- Subtitle Suite checks the movie ID first. When there is no ID to compare, it checks the title and year.
+- If a page contains only other movies, the search still checks the next page. If no matching Dutch subtitle exists, it shows no results.
+
+## 2.9.25 — 2026-10-11
+
+- AI translation now shows the languages, current block, completed lines and elapsed time.
+- The window explains when it is waiting for AI, receiving an answer, checking the translation or saving the subtitle.
+- Connection retries show a countdown. An incomplete translation shows a separate retry message.
+- The block counter stays correct when continuing a saved translation or retrying smaller blocks.
+- The percentage counts completed text and reaches 100% after the subtitle is saved.
+
+## 2.9.24 — 2026-10-11
+
+- Fixing subtitle timing now shows what it is doing, with completed checks and elapsed time.
+- The progress bar moves during playback-speed checks, timing comparisons and line adjustments.
+- Cancel works during timing calculations and while waiting for AI.
+- The progress window closes before asking how to save the result.
+
+## 2.9.23 — 2026-10-11
+
+- Subtitle search now uses the movie or episode ID and recognises matching video files.
+- Series searches use the show name, season and episode, with a title search as a backup.
+- More candidates are checked before the best results are shown, including a second page from OpenSubtitles.
+- Matching video files come first; equally suitable subtitles favour human translations and trusted uploaders.
+- Short titles such as **It** and **Up**, and titles in other alphabets, are kept intact.
+- Searches skip subtitles containing only the foreign-language dialogue and include all files in a release.
+
 ## 2.9.22 — 2026-10-10
 
 - Kodi stays awake while an AI subtitle translation is running.

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="service.subtitles.subtitlesuite"
        name="Subtitle Suite"
-       version="2.9.22"
+       version="2.9.26"
        provider-name="coendeurloo">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -21,6 +21,30 @@ The addon opens from the subtitle search screen and supports:
 - Existing dual-subtitle style and timing options</description>
     <disclaimer lang="en"></disclaimer>
     <news>
+2.9.26 (2026-10-11)
+- Hide subtitles belonging to a different movie, even when OpenSubtitles returns them for the title or year
+- Match movie IDs first; otherwise check the movie title and year
+- Check the next results page when the first contains only other movies
+
+2.9.25 (2026-10-11)
+- AI translation shows the language pair, current block, translated lines and elapsed time
+- See when AI is replying, the translation is checked or the subtitle is saved
+- Connection retries show a countdown; translation retries are labelled separately
+- Progress counts stay correct when resuming or retrying smaller blocks
+
+2.9.24 (2026-10-11)
+- Timing fixes show the current step, completed checks and elapsed time
+- The progress bar updates while comparing speeds, shifts and movie sections
+- Cancel responds during timing calculations and while waiting for AI
+- Close the progress window before asking how to save the fixed subtitle
+
+2.9.23 (2026-10-11)
+- Find subtitles using the movie or episode ID and matching video files
+- Search series by show name, season and episode, with a title search as a backup
+- Check more results before showing the best matches
+- Keep short titles and titles in other alphabets intact
+- Prefer matching files, human translations and trusted uploaders
+
 2.9.22 (2026-10-10)
 - Keep the screen awake during AI translation and show live waiting/retry status
 - Restore responsive cancellation during AI network requests

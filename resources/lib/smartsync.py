@@ -4,6 +4,21 @@ import copy
 import re
 import time
 from bisect import bisect_left
+from .background_jobs import JobCancelled
+
+
+def _report_progress(callback, stage, completed=0, total=1, cancel_event=None):
+    if cancel_event is not None and cancel_event.is_set():
+        raise JobCancelled()
+    if callback is not None:
+        callback(stage, completed, total)
+
+
+def _scan_progress(callback, completed, total, cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise JobCancelled()
+    if callback is not None:
+        callback(completed, total)
 
 LOW_CONFIDENCE_THRESHOLD = 0.70
 RAW_MISMATCH_MEDIAN_MS = 2200
@@ -160,7 +175,7 @@ def _interval_overlap_score(reference_intervals, target_intervals, offset_ms):
     return score
 
 
-def _scan_best_global_offset(reference_points, target_points, coarse_step=None, fine_step=None, return_score=False):
+def _scan_best_global_offset(reference_points, target_points, coarse_step=None, fine_step=None, return_score=False, progress_callback=None, cancel_event=None):
     if not reference_points or not target_points:
         return (0.0, 0.0) if return_score else 0.0
 
@@ -174,25 +189,38 @@ def _scan_best_global_offset(reference_points, target_points, coarse_step=None, 
 
     best_offset = 0
     best_score = -1.0
+    total = (2 * MAX_OFFSET_SCAN_MS) // coarse_step + 1
+    if fine_step and fine_step > 0:
+        total += (2 * GLOBAL_SCAN_FINE_RANGE_MS) // fine_step + 1
+    completed = 0
+    _scan_progress(progress_callback, 0, total, cancel_event)
 
     offset = -MAX_OFFSET_SCAN_MS
     while offset <= MAX_OFFSET_SCAN_MS:
+        if completed % 16 == 0:
+            _scan_progress(progress_callback, completed, total, cancel_event)
         score = _interval_overlap_score(reference_intervals, target_intervals, offset)
         if score > best_score:
             best_score = score
             best_offset = offset
         offset += coarse_step
+        completed += 1
 
     if fine_step and fine_step > 0:
         fine_start = best_offset - GLOBAL_SCAN_FINE_RANGE_MS
         fine_end = best_offset + GLOBAL_SCAN_FINE_RANGE_MS
         offset = fine_start
         while offset <= fine_end:
+            if completed % 16 == 0:
+                _scan_progress(progress_callback, completed, total, cancel_event)
             score = _interval_overlap_score(reference_intervals, target_intervals, offset)
             if score > best_score:
                 best_score = score
                 best_offset = offset
             offset += fine_step
+            completed += 1
+
+    _scan_progress(progress_callback, total, total, cancel_event)
 
     if return_score:
         return float(best_offset), float(best_score)
@@ -212,7 +240,7 @@ def _window_intervals(points, window_start, window_end):
     return intervals
 
 
-def _best_offset_for_window(reference_intervals, target_window_intervals, seed_offset):
+def _best_offset_for_window(reference_intervals, target_window_intervals, seed_offset, progress_callback=None, cancel_event=None):
     if len(reference_intervals) == 0 or len(target_window_intervals) == 0:
         return seed_offset, 0.0
 
@@ -220,14 +248,21 @@ def _best_offset_for_window(reference_intervals, target_window_intervals, seed_o
     best_score = -1.0
     scan_start = int(round(seed_offset - LOCAL_WINDOW_SCAN_RANGE_MS))
     scan_end = int(round(seed_offset + LOCAL_WINDOW_SCAN_RANGE_MS))
+    total = (scan_end - scan_start) // LOCAL_WINDOW_SCAN_STEP_MS + 1
+    completed = 0
 
     offset = scan_start
     while offset <= scan_end:
+        if completed % 16 == 0:
+            _scan_progress(progress_callback, completed, total, cancel_event)
         score = _interval_overlap_score(reference_intervals, target_window_intervals, offset)
         if score > best_score:
             best_score = score
             best_offset = float(offset)
         offset += LOCAL_WINDOW_SCAN_STEP_MS
+        completed += 1
+
+    _scan_progress(progress_callback, total, total, cancel_event)
 
     return best_offset, best_score
 
@@ -277,7 +312,7 @@ def _scale_subtitle_timings(subs, factor):
     return scaled
 
 
-def detect_frame_rate_ratio(reference_subs, target_subs):
+def detect_frame_rate_ratio(reference_subs, target_subs, progress_callback=None, cancel_event=None):
     """Choose a safe known frame-rate ratio using sampled interval overlap.
 
     ``ratio`` follows the historical conversion notation; the target timeline
@@ -298,7 +333,10 @@ def detect_frame_rate_ratio(reference_subs, target_subs):
         return result
 
     candidates = []
-    for name, ratio in FRAME_RATE_RATIOS:
+    for index, (name, ratio) in enumerate(FRAME_RATE_RATIOS):
+        def ratio_progress(done, total):
+            _report_progress(progress_callback, 'speed', index + float(done) / total,
+                             len(FRAME_RATE_RATIOS), cancel_event)
         scaled_target = _scale_points(target_points, 1.0 / ratio)
         offset, score = _scan_best_global_offset(
             reference_points,
@@ -306,6 +344,8 @@ def detect_frame_rate_ratio(reference_subs, target_subs):
             coarse_step=FPS_DETECTION_OFFSET_STEP_MS,
             fine_step=0,
             return_score=True,
+            progress_callback=ratio_progress,
+            cancel_event=cancel_event,
         )
         candidates.append({
             'ratio': float(ratio),
@@ -378,8 +418,9 @@ def _collect_nearest_offsets(reference_points, target_points, hint_offset=0.0, m
     return offsets
 
 
-def _estimate_global_offset(reference_points, target_points):
-    overlap_offset = _scan_best_global_offset(reference_points, target_points)
+def _estimate_global_offset(reference_points, target_points, progress_callback=None, cancel_event=None):
+    overlap_offset = _scan_best_global_offset(reference_points, target_points,
+                                            progress_callback=progress_callback, cancel_event=cancel_event)
     baseline = _collect_nearest_offsets(
         reference_points,
         target_points,
@@ -468,7 +509,7 @@ def _estimate_opening_index_offset(reference_points, target_points, max_items=18
     }
 
 
-def _build_offset_knots(reference_points, target_points, global_offset):
+def _build_offset_knots(reference_points, target_points, global_offset, progress_callback=None, cancel_event=None):
     if not target_points:
         return [{'time': 0.0, 'offset': float(global_offset), 'count': 0}]
 
@@ -482,11 +523,19 @@ def _build_offset_knots(reference_points, target_points, global_offset):
 
     center = start_time
     previous_offset = float(global_offset)
+    total_windows = (end_time - start_time) // WINDOW_STEP_MS + 1
+    window_index = 0
     while center <= end_time:
+        _report_progress(progress_callback, 'sections', window_index, total_windows, cancel_event)
         target_window_intervals = _window_intervals(target_points, center - WINDOW_HALF_MS, center + WINDOW_HALF_MS)
         count = len(target_window_intervals)
         if count >= WINDOW_MIN_POINTS:
-            best_offset, best_score = _best_offset_for_window(reference_intervals, target_window_intervals, previous_offset)
+            def window_progress(done, total):
+                _report_progress(progress_callback, 'sections', window_index + float(done) / total,
+                                 total_windows, cancel_event)
+            best_offset, best_score = _best_offset_for_window(
+                reference_intervals, target_window_intervals, previous_offset,
+                progress_callback=window_progress, cancel_event=cancel_event)
             if best_score > 0:
                 if abs(best_offset - global_offset) > OUTLIER_OFFSET_DELTA_MS:
                     best_offset = float(global_offset)
@@ -497,6 +546,8 @@ def _build_offset_knots(reference_points, target_points, global_offset):
                     'count': count,
                 })
         center += WINDOW_STEP_MS
+        window_index += 1
+    _report_progress(progress_callback, 'sections', total_windows, total_windows, cancel_event)
 
     if not knots:
         # Fallback to nearest-pair smoothing when window overlap scanning cannot produce any usable knot.
@@ -546,10 +597,14 @@ def _offset_at_time(knots, timestamp):
     return knots[-1]['offset']
 
 
-def _apply_knots(target_subs, knots):
+def _apply_knots(target_subs, knots, progress_callback=None, cancel_event=None, stage='adjust'):
+    _report_progress(progress_callback, stage, 0, max(1, len(getattr(target_subs, 'events', []))), cancel_event)
     synced = copy.deepcopy(target_subs)
     previous_start = -1
-    for event in getattr(synced, 'events', []):
+    events = getattr(synced, 'events', [])
+    for index, event in enumerate(events):
+        if index % 64 == 0:
+            _report_progress(progress_callback, stage, index, len(events), cancel_event)
         start = int(getattr(event, 'start', 0))
         end = int(getattr(event, 'end', start + 1))
         offset_start = _offset_at_time(knots, start)
@@ -572,6 +627,7 @@ def _apply_knots(target_subs, knots):
         event.start = new_start
         event.end = new_end
         previous_start = new_start
+    _report_progress(progress_callback, stage, len(events), len(events), cancel_event)
     return synced
 
 
@@ -719,10 +775,11 @@ def assess_pair(reference_subs, target_subs):
     }
 
 
-def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True):
+def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True, progress_callback=None, cancel_event=None):
+    _report_progress(progress_callback, 'speed', 0, len(FRAME_RATE_RATIOS), cancel_event)
     detection_started_at = time.monotonic()
     if enable_frame_rate_correction:
-        fps_detection = detect_frame_rate_ratio(reference_subs, target_subs)
+        fps_detection = detect_frame_rate_ratio(reference_subs, target_subs, progress_callback, cancel_event)
     else:
         fps_detection = {
             'ratio': 1.0, 'name': '1.0', 'offset_ms': 0, 'score': 0.0,
@@ -736,18 +793,23 @@ def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True):
     reference_points = _subtitle_points(reference_subs)
     target_points = _subtitle_points(working_target_subs)
 
-    global_offset = _estimate_global_offset(reference_points, target_points)
+    _report_progress(progress_callback, 'shift', 0, 1, cancel_event)
+    def shift_progress(done, total):
+        _report_progress(progress_callback, 'shift', done, total, cancel_event)
+    global_offset = _estimate_global_offset(reference_points, target_points, shift_progress, cancel_event)
     opening_offset = _estimate_opening_index_offset(reference_points, target_points)
     if opening_offset is not None:
         # Prefer stable opening alignment when global overlap scan drifts to another section.
         if abs(global_offset - opening_offset['offset']) > 90000 and opening_offset['spread'] <= 3000:
             global_offset = opening_offset['offset']
 
-    knots = _build_offset_knots(reference_points, target_points, global_offset)
-    synced_subs = _apply_knots(working_target_subs, knots)
+    knots = _build_offset_knots(reference_points, target_points, global_offset, progress_callback, cancel_event)
+    synced_subs = _apply_knots(working_target_subs, knots, progress_callback, cancel_event)
+    _report_progress(progress_callback, 'check', 0, 1, cancel_event)
     synced_points = _subtitle_points(synced_subs)
     metrics = _evaluate_alignment(reference_points, synced_points)
     knot_quality = _knot_instability(knots)
+    _report_progress(progress_callback, 'check', 1, 1, cancel_event)
     low_confidence = (
         metrics['confidence'] < LOW_CONFIDENCE_THRESHOLD or
         metrics['p90_error_ms'] >= LOCAL_SYNC_P90_LOW_CONFIDENCE_MS or
@@ -784,7 +846,8 @@ def build_ai_samples(subs, max_items=70):
     return payload
 
 
-def sync_from_anchor_pairs(reference_subs, target_subs, anchor_pairs):
+def sync_from_anchor_pairs(reference_subs, target_subs, anchor_pairs, progress_callback=None, cancel_event=None):
+    _report_progress(progress_callback, 'ai_adjust', 0, 1, cancel_event)
     reference_points = _subtitle_points(reference_subs)
     target_points = _subtitle_points(target_subs)
     reference_lookup, _, _ = _point_lookup(reference_points)
@@ -838,10 +901,12 @@ def sync_from_anchor_pairs(reference_subs, target_subs, anchor_pairs):
             deduped[-1]['offset'] = merged_offset
             deduped[-1]['count'] += 1
 
-    synced_subs = _apply_knots(target_subs, deduped)
+    synced_subs = _apply_knots(target_subs, deduped, progress_callback, cancel_event, stage='ai_adjust')
+    _report_progress(progress_callback, 'ai_check', 0, 1, cancel_event)
     synced_points = _subtitle_points(synced_subs)
     metrics = _evaluate_alignment(reference_points, synced_points)
     knot_quality = _knot_instability(deduped)
+    _report_progress(progress_callback, 'ai_check', 1, 1, cancel_event)
     metrics.update({
         'method': 'ai_anchor',
         'estimated_global_offset_ms': int(round(_median([k['offset'] for k in deduped]))),

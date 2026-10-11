@@ -195,6 +195,27 @@ class OpenAITranslationRequestTests(unittest.TestCase):
     self.assertEqual([10, 10], calls)
     self.assertTrue(any('transient network error' in message for message, _ in logs))
 
+  def test_status_reports_backoff_receive_and_check_without_changing_attempt_callback(self):
+    calls, statuses, attempts = [], [], []
+    def fake_urlopen(request, timeout):
+      calls.append(True)
+      if len(calls) == 1:
+        raise TimeoutError('stalled')
+      return _response(['Hallo'])
+    service.urlopen = fake_urlopen
+    service.time.sleep = lambda seconds: None
+    result = service._openai_translate_lines(
+      ['Hello'], 'en', 'nl', 'key', 'model', 10,
+      progress_callback=attempts.append,
+      status_callback=lambda phase, **details: statuses.append((phase, details)),
+    )
+    self.assertEqual(['Hallo'], result)
+    self.assertEqual([1, 2], attempts)
+    self.assertEqual(('retry_wait', {'delay': 2, 'next_attempt': 2}), statuses[0])
+    self.assertEqual('receiving', statuses[1][0])
+    self.assertGreater(statuses[2][1]['response_bytes'], 0)
+    self.assertEqual('checking', statuses[-1][0])
+
   def test_exhausted_network_errors_are_identified_without_extra_block_retries(self):
     calls = []
     def fail(request, timeout):
@@ -235,6 +256,8 @@ class TranslationProgressTests(unittest.TestCase):
       self.assertIn('10/90', service._translation_status(33316, 10, 90, 5))
       self.assertIn('retry 2/3', service._translation_status(33317, 10, 90, 2, 3, 5))
       self.assertIn('saved progress', service._translation_status(33318, 'Connection failed'))
+      self.assertIn('Block 2/10', service._translation_status(33330, 'English', 'Dutch', 2, 10))
+      self.assertEqual('Checking translated lines...', service._translation_status(33336))
 
   def test_kodi_21_receives_counts_and_status_in_one_message(self):
     messages = []
@@ -307,7 +330,7 @@ class _Progress(object):
 
 
 class SubtitleTranslationBlockTests(unittest.TestCase):
-  def _run_translation(self, translation_response, line_texts=None, checkpoint=None, progress_class=_Progress):
+  def _run_translation(self, translation_response, line_texts=None, checkpoint=None, progress_class=_Progress, messages=None):
     if line_texts is None:
       line_texts = ['line %d' % index for index in range(1, 6)]
     data = _SubtitleData([_SubtitleLine(text) for text in line_texts])
@@ -343,7 +366,11 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
     patch('_build_translated_subtitle_path', lambda source, target: 'translated.srt')
     patch('_openai_translate_lines', fake_translate)
     progress_updates = []
-    patch('_progress_update', lambda *args, **kwargs: progress_updates.append(args[1]))
+    def record_progress(*args, **kwargs):
+      progress_updates.append(args[1])
+      if messages is not None:
+        messages.append((args[1], args[2], args[3], threading.get_ident()))
+    patch('_progress_update', record_progress)
     patch('_log_timing', lambda event, started_at, details='': logs.append(('timing', event, details)))
     patch('_log', lambda message, level: logs.append((level, message)))
     patch('_notify', lambda message, icon, timeout=4000: notifications.append((message, icon)))
@@ -422,7 +449,7 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
     )
     self.assertTrue(data.saved)
     self.assertEqual(0, progress_updates[0])
-    self.assertGreater(progress_updates[1], 90)
+    self.assertGreater(next(percent for percent in progress_updates if percent > 0), 90)
     self.assertEqual(100, progress_updates[-1])
 
   def test_network_failure_preserves_progress_and_resumes_without_retranslating(self):
@@ -456,6 +483,45 @@ class SubtitleTranslationBlockTests(unittest.TestCase):
     self.assertTrue(data.saved)
     self.assertGreater(progress[0], 0)
     self.assertEqual(100, progress[-1])
+
+  def test_block_counts_follow_splits_and_show_validation_and_save_on_main_thread(self):
+    messages = []
+    def translate(lines):
+      if lines == ['line 3', 'line 4']:
+        raise RuntimeError('invalid block')
+      return ['vertaald ' + line for line in lines]
+    self._run_translation(translate, messages=messages)
+    text = '\n'.join(header + detail for _, header, detail, _ in messages)
+    for label in ['Block 1/3', 'Block 2/3', 'Block 2/4', 'Block 3/4', 'Block 4/4',
+                  'Checking translated lines', 'Translation retry 2/2',
+                  'Saving translated progress', 'Saving translated subtitle', 'Translation complete',
+                  '5/5 lines translated', 'elapsed']:
+      self.assertIn(label, text)
+    self.assertTrue(all(thread == threading.get_ident() for _, _, _, thread in messages))
+    checking = [percent for percent, _, detail, _ in messages if 'Checking translated lines' in detail]
+    self.assertEqual(0, checking[0])
+    self.assertTrue(all(percent < 100 for percent, _, _, _ in messages[:-1]))
+
+  def test_resume_shows_saved_lines_and_counts_only_remaining_blocks(self):
+    checkpoint = types.SimpleNamespace(
+      load=lambda: ['vertaald line 1', 'vertaald line 2'], save=lambda lines: None, clear=lambda: None,
+    )
+    messages = []
+    self._run_translation(lambda lines: ['vertaald ' + line for line in lines], checkpoint=checkpoint, messages=messages)
+    self.assertIn('Continuing from 2 saved lines', messages[0][2])
+    self.assertTrue(any('Block 1/2' in header for _, header, _, _ in messages))
+    self.assertIn('Block 2/2', messages[-1][1])
+
+  def test_fully_saved_translation_has_no_empty_block_counter(self):
+    checkpoint = types.SimpleNamespace(
+      load=lambda: ['vertaald line %d' % i for i in range(1, 6)], save=lambda lines: None, clear=lambda: None,
+    )
+    messages = []
+    def unexpected_request(lines):
+      self.fail('Saved translation should not make an AI request')
+    self._run_translation(unexpected_request, checkpoint=checkpoint, messages=messages)
+    self.assertTrue(all('Block' not in header for _, header, _, _ in messages))
+    self.assertEqual(100, messages[-1][0])
 
   def test_translation_keeps_screen_awake_and_restores_normal_idle_behavior(self):
     commands = []

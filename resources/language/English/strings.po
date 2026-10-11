@@ -1233,3 +1233,103 @@ msgstr ""
 msgctxt "#32539"
 msgid "Positive numbers move the top subtitle down. Negative numbers move it up toward the top edge."
 msgstr ""
+
+msgctxt "#33319"
+msgid "Comparing playback speeds..."
+msgstr ""
+
+msgctxt "#33320"
+msgid "Finding the overall timing shift..."
+msgstr ""
+
+msgctxt "#33321"
+msgid "Comparing sections of the movie..."
+msgstr ""
+
+msgctxt "#33322"
+msgid "Adjusting subtitle lines..."
+msgstr ""
+
+msgctxt "#33323"
+msgid "Checking the corrected timing..."
+msgstr ""
+
+msgctxt "#33324"
+msgid "%d/%d checks completed (%ds elapsed)"
+msgstr ""
+
+msgctxt "#33325"
+msgid "Waiting for AI timing matches (%ds elapsed)"
+msgstr ""
+
+msgctxt "#33326"
+msgid "Loading reference subtitle..."
+msgstr ""
+
+msgctxt "#33327"
+msgid "Loading subtitle to fix..."
+msgstr ""
+
+msgctxt "#33328"
+msgid "Preparing subtitle lines..."
+msgstr ""
+
+msgctxt "#33329"
+msgid "%ds elapsed"
+msgstr ""
+
+msgctxt "#33330"
+msgid "%s to %s | Block %d/%d"
+msgstr ""
+
+msgctxt "#33331"
+msgid "%d/%d lines translated | %s elapsed"
+msgstr ""
+
+msgctxt "#33332"
+msgid "Waiting for AI (%ds)"
+msgstr ""
+
+msgctxt "#33333"
+msgid "Connection retry %d/%d; waiting for AI (%ds)"
+msgstr ""
+
+msgctxt "#33334"
+msgid "Connection retry %d/%d in %ds"
+msgstr ""
+
+msgctxt "#33335"
+msgid "Receiving AI reply (%d KB)"
+msgstr ""
+
+msgctxt "#33336"
+msgid "Checking translated lines..."
+msgstr ""
+
+msgctxt "#33337"
+msgid "Translation needs another try (%d/%d)"
+msgstr ""
+
+msgctxt "#33338"
+msgid "Saving translated progress..."
+msgstr ""
+
+msgctxt "#33339"
+msgid "Saving translated subtitle..."
+msgstr ""
+
+msgctxt "#33340"
+msgid "Continuing from %d saved lines"
+msgstr ""
+
+msgctxt "#33341"
+msgid "Translation complete"
+msgstr ""
+
+msgctxt "#33342"
+msgid "%s to %s"
+msgstr ""
+
+msgctxt "#33343"
+msgid "Translation retry %d/%d; waiting for AI (%ds)"
+msgstr ""

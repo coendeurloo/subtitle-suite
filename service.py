@@ -5,7 +5,6 @@ import re
 import sys
 import json
 import difflib
-import struct
 import time
 INTERPRETER_STARTED_AT = time.monotonic()
 import zipfile
@@ -67,8 +66,10 @@ from resources.lib.languages import (
   LANGUAGE_CODE_ALIASES,
   KNOWN_LANGUAGE_CODES as KNOWN_SUBTITLE_LANGUAGE_CODES,
 )
+from resources.lib.subtitle_search import clean_filename_title, hash_video_blocks, search_cache_key
 from resources.lib.file_safety import copy_and_replace_atomically, same_directory_temp_path
 from resources.lib.background_jobs import CancellableJob, JobCancelled
+from resources.lib.smartsync_progress import SmartSyncProgress
 from resources.lib.lucky_pipeline import LuckyDeadline, lucky_decision_steps
 from resources.lib.translation_validation import (
   TranslationValidationError, TranslationRequestError,
@@ -77,6 +78,7 @@ from resources.lib.translation_validation import (
 from resources.lib.translation_checkpoint import TranslationCheckpoint
 from resources.lib.translation_prompt import _build_translation_prompt
 from resources.lib.translation_batches import _split_translation_lines
+from resources.lib.translation_progress import TranslationRequestProgress
 from resources.lib.subtitle_pair_picker import subtitle_matches_video, build_subtitle_pairs
 DOWNLOAD_PROVIDER_WARNING_SHOWN = {}
 DOWNLOAD_PROVIDER_RUNTIME_DISABLED = {}
@@ -804,22 +806,12 @@ def _compute_file_hash_and_size(file_path):
           action_context.file_hash, action_context.file_size = result
         return result
 
-      file_hash = file_size
-      for _ in range(int(chunk_size / 8)):
-        block = vfs_file.read(8)
-        if not isinstance(block, bytes) or len(block) < 8:
-          raise RuntimeError('short or non-bytes block from xbmcvfs')
-        file_hash += struct.unpack('<Q', block)[0]
-
-      vfs_file.seek(max(0, file_size - chunk_size), os.SEEK_SET)
-      for _ in range(int(chunk_size / 8)):
-        block = vfs_file.read(8)
-        if not isinstance(block, bytes) or len(block) < 8:
-          raise RuntimeError('short or non-bytes block from xbmcvfs')
-        file_hash += struct.unpack('<Q', block)[0]
-
-      file_hash &= 0xFFFFFFFFFFFFFFFF
-      result = ('%016x' % (file_hash)), file_size
+      first = vfs_file.readBytes(chunk_size)
+      tail_position = file_size - chunk_size
+      if vfs_file.seek(tail_position, os.SEEK_SET) != tail_position:
+        raise ValueError('Video file does not support seeking')
+      last = vfs_file.readBytes(chunk_size)
+      result = hash_video_blocks(file_size, first, last), file_size
       if file_path == action_context.video_path:
         action_context.file_hash, action_context.file_size = result
       return result
@@ -851,23 +843,11 @@ def _compute_file_hash_and_size(file_path):
     return result
 
   try:
-    file_hash = file_size
     with open(file_path, 'rb') as file_handle:
-      for _ in range(int(chunk_size / 8)):
-        block = file_handle.read(8)
-        if len(block) < 8:
-          break
-        file_hash += struct.unpack('<Q', block)[0]
-
-      file_handle.seek(max(0, file_size - chunk_size), os.SEEK_SET)
-      for _ in range(int(chunk_size / 8)):
-        block = file_handle.read(8)
-        if len(block) < 8:
-          break
-        file_hash += struct.unpack('<Q', block)[0]
-
-    file_hash &= 0xFFFFFFFFFFFFFFFF
-    result = ('%016x' % (file_hash)), file_size
+      first = file_handle.read(chunk_size)
+      file_handle.seek(file_size - chunk_size, os.SEEK_SET)
+      last = file_handle.read(chunk_size)
+    result = hash_video_blocks(file_size, first, last), file_size
     if file_path == action_context.video_path:
       action_context.file_hash, action_context.file_size = result
     return result
@@ -888,7 +868,7 @@ def _normalize_imdb_id(value):
     if len(digits) < 7 or len(digits) > 10:
       return ''
     return 'tt%s' % (digits)
-  digits = re.sub(r'[^0-9]', '', imdb_id)
+  digits = imdb_id if imdb_id.isdigit() else ''
   if digits:
     if len(digits) < 7 or len(digits) > 10:
       return ''
@@ -903,6 +883,9 @@ def _current_video_metadata():
     'imdb_id': '',
     'title': '',
     'tvshow_title': '',
+    'original_title': '',
+    'season': '',
+    'episode': '',
     'year': '',
     'genre': '',
     'plot': '',
@@ -924,7 +907,7 @@ def _current_video_metadata():
 
   if tag:
     try:
-      metadata['imdb_id'] = _normalize_imdb_id(tag.getIMDBNumber())
+      metadata['imdb_id'] = _normalize_imdb_id(tag.getUniqueID('imdb'))
     except Exception:
       pass
     try:
@@ -967,9 +950,41 @@ def _current_video_metadata():
       if name:
         metadata['cast'].append(name)
 
+  if tag:
+    if not metadata['imdb_id']:
+      try:
+        value = _as_text(tag.getIMDBNumber()).strip()
+        if value.lower().startswith('tt'):
+          metadata['imdb_id'] = _normalize_imdb_id(value)
+      except Exception:
+        pass
+    try:
+      metadata['original_title'] = _as_text(tag.getOriginalTitle()).strip()
+    except Exception:
+      pass
+    for key, method in [('season', 'getSeason'), ('episode', 'getEpisode')]:
+      try:
+        number = int(getattr(tag, method)())
+        if number >= 0:
+          metadata[key] = str(number).zfill(2)
+      except Exception:
+        pass
+
+  for key, label in [('season', 'Season'), ('episode', 'Episode'),
+                     ('original_title', 'OriginalTitle'), ('year', 'Year')]:
+    if not metadata[key]:
+      try:
+        value = _as_text(xbmc.getInfoLabel('VideoPlayer.' + label)).strip()
+        if key in ['season', 'episode']:
+          value = str(int(value)).zfill(2) if value.isdigit() else ''
+        metadata[key] = value
+      except Exception:
+        pass
+
   if not metadata['imdb_id']:
     try:
-      metadata['imdb_id'] = _normalize_imdb_id(xbmc.getInfoLabel('VideoPlayer.IMDBNumber'))
+      value = _as_text(xbmc.getInfoLabel('VideoPlayer.IMDBNumber')).strip()
+      metadata['imdb_id'] = _normalize_imdb_id(value) if value.lower().startswith('tt') else ''
     except Exception:
       pass
   if not metadata['title']:
@@ -1326,7 +1341,7 @@ def _openai_retry_delay(attempt_index):
   return OPENAI_RETRY_DELAYS_SECONDS[-1]
 
 
-def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None, cancel_event=None, progress_callback=None):
+def _openai_translate_lines(lines, source_language_code, target_language_code, api_key, model, timeout_seconds, context=None, cancel_event=None, progress_callback=None, status_callback=None):
   global OPENAI_RESPONSE_FORMAT_SUPPORTED
   system_prompt, user_prompt = _build_translation_prompt(
     lines, source_language_code, target_language_code, context=context
@@ -1373,7 +1388,12 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     if cancel_event is not None and cancel_event.is_set():
       raise JobCancelled()
 
-  def retry_wait(delay):
+  def report_status(phase, **details):
+    if status_callback is not None:
+      status_callback(phase, **details)
+
+  def retry_wait(delay, next_attempt):
+    report_status('retry_wait', delay=delay, next_attempt=next_attempt)
     if cancel_event is None:
       time.sleep(delay)
     elif cancel_event.wait(delay):
@@ -1394,6 +1414,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
       response_parts = []
       response_bytes = 0
       try:
+        report_status('receiving', response_bytes=0)
         while True:
           check_cancelled()
           if hasattr(response, 'read1'):
@@ -1403,6 +1424,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
           if not part:
             break
           response_bytes += len(part)
+          report_status('receiving', response_bytes=response_bytes)
           if response_bytes > OPENAI_MAX_RESPONSE_BYTES:
             raise RuntimeError('OpenAI response exceeded the size limit.')
           response_parts.append(part)
@@ -1433,7 +1455,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
           % (getattr(exc, 'code', 'unknown'), request_attempt + 1, OPENAI_MAX_REQUEST_ATTEMPTS, delay),
           LOG_WARNING,
         )
-        retry_wait(delay)
+        retry_wait(delay, request_attempt + 2)
         continue
       _log('openai request failed: code=%s body=%s' % (getattr(exc, 'code', 'unknown'), body), LOG_ERROR)
       raise TranslationRequestError('OpenAI request failed (%s).' % (getattr(exc, 'code', 'unknown')))
@@ -1445,7 +1467,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
           % (exc, request_attempt + 1, OPENAI_MAX_REQUEST_ATTEMPTS, delay),
           LOG_WARNING,
         )
-        retry_wait(delay)
+        retry_wait(delay, request_attempt + 2)
         continue
       _log('openai request network error after %d attempts: %s' % (OPENAI_MAX_REQUEST_ATTEMPTS, exc), LOG_ERROR)
       raise TranslationRequestError('OpenAI request failed (network error).')
@@ -1459,6 +1481,7 @@ def _openai_translate_lines(lines, source_language_code, target_language_code, a
     raise TranslationRequestError('OpenAI request failed without a response.')
   check_cancelled()
 
+  report_status('checking')
   try:
     response_payload = json.loads(_as_text(raw_response))
   except Exception as exc:
@@ -2285,18 +2308,97 @@ def _openai_find_smart_sync_anchors(reference_samples, target_samples, api_key, 
     raise RuntimeError(__language__(33106))
   return normalized_pairs
 
-def _run_smart_sync_local(reference_path, target_path):
+def _smart_sync_status(message_id, *values):
+  fallbacks = {
+    33319: 'Comparing playback speeds...',
+    33320: 'Finding the overall timing shift...',
+    33321: 'Comparing sections of the movie...',
+    33322: 'Adjusting subtitle lines...',
+    33323: 'Checking the corrected timing...',
+    33324: '%d/%d checks completed (%ds elapsed)',
+    33325: 'Waiting for AI timing matches (%ds elapsed)',
+    33326: 'Loading reference subtitle...',
+    33327: 'Loading subtitle to fix...',
+    33328: 'Preparing subtitle lines...',
+    33329: '%ds elapsed',
+  }
+  text = __language__(message_id)
+  if not text or text == str(message_id):
+    text = fallbacks[message_id]
+  try:
+    return text % values if values else text
+  except (TypeError, ValueError):
+    return fallbacks[message_id] % values
+
+
+def _run_smart_sync_job(operation, progress=None, minimum_percent=2):
+  state = SmartSyncProgress()
+  started_at = time.monotonic()
+  last_update = [0.0]
+  stages = {
+    'load_reference': 33326, 'load_target': 33327, 'prepare': 33328,
+    'speed': 33319, 'shift': 33320, 'sections': 33321,
+    'adjust': 33322, 'check': 33323, 'ai_adjust': 33322, 'ai_check': 33323,
+  }
+  def _poll(force=False):
+    now = time.monotonic()
+    if not force and now - last_update[0] < 0.2:
+      return
+    last_update[0] = now
+    stage, percent, completed, total = state.snapshot()
+    elapsed = int(now - started_at)
+    if stage == 'ai_wait':
+      message = _smart_sync_status(33325, elapsed)
+      detail = ''
+    else:
+      message = _smart_sync_status(stages[stage])
+      if stage in ['load_reference', 'load_target', 'prepare']:
+        detail = _smart_sync_status(33329, elapsed)
+      else:
+        detail = _smart_sync_status(33324, int(completed), int(total), elapsed)
+    _progress_update(progress, max(minimum_percent, percent), message, detail)
+    _keep_translation_awake()
+  _poll(force=True)
+  job = CancellableJob(lambda cancel_event: operation(state.report, cancel_event)).start()
+  try:
+    result = _wait_for_network_job(job, progress, __language__(33072), on_poll=_poll)
+    if progress is not None and progress.iscanceled():
+      raise JobCancelled(__language__(33072))
+    _poll(force=True)
+    return result
+  except Exception:
+    job.cancel()
+    raise
+
+
+def _run_smart_sync_local(reference_path, target_path, progress=None):
+  return _run_smart_sync_job(
+    lambda report, cancel_event: _run_smart_sync_local_work(reference_path, target_path, report, cancel_event),
+    progress,
+  )
+
+
+def _run_smart_sync_local_work(reference_path, target_path, report, cancel_event):
   reference_subs = None
   target_subs = None
   reference_local = ''
   target_local = ''
   try:
+    report('load_reference')
+    if cancel_event.is_set():
+      raise JobCancelled()
     reference_subs, reference_local = _load_subtitle_for_processing(reference_path)
+    report('load_target')
+    if cancel_event.is_set():
+      raise JobCancelled()
     target_subs, target_local = _load_subtitle_for_processing(target_path)
+    report('prepare', 1, 1)
     result = smartsync.sync_local(
       reference_subs,
       target_subs,
-      enable_frame_rate_correction=_is_smart_sync_frame_rate_correction_enabled()
+      enable_frame_rate_correction=_is_smart_sync_frame_rate_correction_enabled(),
+      progress_callback=report,
+      cancel_event=cancel_event
     )
     _log_timing(
       'smartsync_fps_detection',
@@ -2328,12 +2430,29 @@ def _run_smart_sync_ai(reference_path, target_path):
     _log('smart sync ai fallback cancelled by user', LOG_INFO)
     return None
 
+  progress = _create_smart_sync_progress()
+  try:
+    return _run_smart_sync_job(
+      lambda report, cancel_event: _run_smart_sync_ai_work(reference_path, target_path, api_key, report, cancel_event),
+      progress, minimum_percent=88,
+    )
+  finally:
+    _close_progress(progress)
+
+
+def _run_smart_sync_ai_work(reference_path, target_path, api_key, report, cancel_event):
   reference_subs = None
   target_subs = None
   reference_local = ''
   target_local = ''
   try:
+    report('load_reference')
+    if cancel_event.is_set():
+      raise JobCancelled()
     reference_subs, reference_local = _load_subtitle_for_processing(reference_path)
+    report('load_target')
+    if cancel_event.is_set():
+      raise JobCancelled()
     target_subs, target_local = _load_subtitle_for_processing(target_path)
 
     reference_samples = smartsync.build_ai_samples(reference_subs, max_items=70)
@@ -2341,6 +2460,9 @@ def _run_smart_sync_ai(reference_path, target_path):
     if len(reference_samples) == 0 or len(target_samples) == 0:
       raise RuntimeError(__language__(33103))
 
+    report('ai_wait')
+    if cancel_event.is_set():
+      raise JobCancelled()
     anchors = _openai_find_smart_sync_anchors(
       reference_samples,
       target_samples,
@@ -2348,7 +2470,7 @@ def _run_smart_sync_ai(reference_path, target_path):
       _get_openai_model(),
       _get_translation_timeout_seconds()
     )
-    ai_result = smartsync.sync_from_anchor_pairs(reference_subs, target_subs, anchors)
+    ai_result = smartsync.sync_from_anchor_pairs(reference_subs, target_subs, anchors, progress_callback=report, cancel_event=cancel_event)
     _log('smart sync ai fallback succeeded: anchors=%d confidence=%.3f' % (len(anchors), ai_result.get('confidence', 0.0)), LOG_INFO)
     return ai_result
   finally:
@@ -2405,21 +2527,27 @@ def _run_smart_sync_pipeline(reference_path, target_path, allow_ai_fallback=True
 def _run_smart_sync_pipeline_impl(reference_path, target_path, allow_ai_fallback=True, video_dir='', video_basename=''):
   result = {
     'applied': False,
+    'cancelled': False,
     'play_path': target_path,
     'temp_paths': [],
   }
   progress = _create_smart_sync_progress()
 
   try:
-    _set_smart_sync_progress(progress, 8, 33135)
-    local_result = _run_smart_sync_local(reference_path, target_path)
-    _set_smart_sync_progress(progress, 45, 33136)
+    local_result = _run_smart_sync_local(reference_path, target_path, progress=progress)
+  except JobCancelled:
+    _close_progress(progress)
+    result['cancelled'] = True
+    _log('smart sync cancelled during local analysis', LOG_INFO)
+    return result
   except Exception as exc:
     _close_progress(progress)
     _log('smart sync local stage failed: %s' % (exc), LOG_WARNING)
     _notify(__language__(33109), NOTIFY_WARNING)
     return result
 
+  _close_progress(progress)
+  progress = None
   _notify(__language__(33107) % (_smart_sync_confidence_percent(local_result), local_result.get('median_error_ms', 0)), NOTIFY_INFO)
 
   chosen_result = local_result
@@ -2443,9 +2571,11 @@ def _run_smart_sync_pipeline_impl(reference_path, target_path, allow_ai_fallback
       if low_conf_choice == 1:
         ai_result = None
         try:
-          _set_smart_sync_progress(progress, 62, 33137)
           ai_result = _run_smart_sync_ai(reference_path, target_path)
-          _set_smart_sync_progress(progress, 78, 33138)
+        except JobCancelled:
+          result['cancelled'] = True
+          _log('smart sync cancelled during AI analysis', LOG_INFO)
+          return result
         except Exception as exc:
           _log('smart sync ai stage failed: %s' % (exc), LOG_WARNING)
           ai_result = None
@@ -2491,15 +2621,18 @@ def _run_smart_sync_pipeline_impl(reference_path, target_path, allow_ai_fallback
     _log('smart sync skipped at apply mode selection', LOG_INFO)
     return result
 
-  _set_smart_sync_progress(progress, 88, 33139)
-  if apply_mode == 'replace':
-    sync_apply = _apply_synced_subtitle_to_target(target_path, chosen_result['synced_subs'])
-  elif apply_mode == 'save_as_new':
-    sync_apply = _save_synced_subtitle_as_new_file(target_path, chosen_result['synced_subs'])
-  else:
-    sync_apply = _prepare_synced_subtitle_playback_only(target_path, chosen_result['synced_subs'])
-  _set_smart_sync_progress(progress, 100, 33140)
-  _close_progress(progress)
+  progress = _create_smart_sync_progress()
+  _set_smart_sync_progress(progress, 96, 33139)
+  try:
+    if apply_mode == 'replace':
+      sync_apply = _apply_synced_subtitle_to_target(target_path, chosen_result['synced_subs'])
+    elif apply_mode == 'save_as_new':
+      sync_apply = _save_synced_subtitle_as_new_file(target_path, chosen_result['synced_subs'])
+    else:
+      sync_apply = _prepare_synced_subtitle_playback_only(target_path, chosen_result['synced_subs'])
+    _set_smart_sync_progress(progress, 100, 33140)
+  finally:
+    _close_progress(progress)
   method_label = _smart_sync_method_label(chosen_result.get('method', 'local'))
   if apply_mode == 'playback_only':
     _notify(__language__(33161), NOTIFY_INFO)
@@ -2707,6 +2840,8 @@ def _run_manual_smart_sync_action():
     return
 
   sync_apply = _run_smart_sync_pipeline(reference_path, target_path, video_dir=video_dir, video_basename=video_basename)
+  if sync_apply.get('cancelled'):
+    return
   if not sync_apply.get('applied'):
     _show_manual_smartsync_completion(False, synced_count=0)
     return
@@ -2778,7 +2913,7 @@ def _create_translation_checkpoint(temp_source, source_path, source_code, target
   )
 
 def _keep_translation_awake():
-  # Reset only while translating; no persistent settings or global inhibit
+  # Reset only while processing subtitles; no persistent settings or global inhibit
   # flag to leave behind if Kodi terminates the script.
   try:
     xbmc.executebuiltin('ResetScreensaver')
@@ -2792,9 +2927,26 @@ def _translation_status(message_id, *values):
     33316: '%d/%d lines translated; waiting for AI (%ds)',
     33317: '%d/%d lines translated; connection retry %d/%d (%ds)',
     33318: '%s[CR]Try translating again to continue from saved progress.',
+    33330: '%s to %s | Block %d/%d',
+    33331: '%d/%d lines translated | %s elapsed',
+    33332: 'Waiting for AI (%ds)',
+    33333: 'Connection retry %d/%d; waiting for AI (%ds)',
+    33334: 'Connection retry %d/%d in %ds',
+    33335: 'Receiving AI reply (%d KB)',
+    33336: 'Checking translated lines...',
+    33337: 'Translation needs another try (%d/%d)',
+    33338: 'Saving translated progress...',
+    33339: 'Saving translated subtitle...',
+    33340: 'Continuing from %d saved lines',
+    33341: 'Translation complete',
+    33342: '%s to %s',
+    33343: 'Translation retry %d/%d; waiting for AI (%ds)',
   }
   try:
-    return __language__(message_id) % values
+    label = __language__(message_id)
+    if not label or label == str(message_id):
+      label = fallbacks[message_id]
+    return label % values
   except (TypeError, ValueError):
     return fallbacks[message_id] % values
 
@@ -2857,6 +3009,23 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       subtitle_lines[translated_count:], batch_size, OPENAI_TRANSLATION_MAX_SOURCE_CHARACTERS
     )
     block_index = 0
+    completed_blocks = 0
+    total_blocks = len(pending_chunks)
+    translation_started_at = time.monotonic()
+    source_label = _language_display_name(source_language_code)
+    target_label = _language_display_name(target_language_code)
+
+    def _show_translation_status(message, active_block=None, complete=False):
+      elapsed = max(0, int(time.monotonic() - translation_started_at))
+      duration = '%d:%02d' % (elapsed // 60, elapsed % 60)
+      block = completed_blocks if active_block is None else active_block
+      summary = _translation_status(33330, source_label, target_label, block, total_blocks)
+      if not total_blocks:
+        summary = _translation_status(33342, source_label, target_label)
+      counts = _translation_status(33331, translated_count, total_lines, duration)
+      percent = 100 if complete else int((99.0 * translated_characters) / total_characters)
+      _progress_update(progress, percent, summary, '%s[CR]%s' % (counts, message))
+
     metadata = _current_video_metadata()
     _, video_basename = _current_video_context()
     season, episode = _extract_season_episode(video_basename)
@@ -2875,7 +3044,10 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
     }
     if translated_count:
       _log('ai translation resumed: translated_lines=%d/%d' % (translated_count, total_lines), LOG_INFO)
-    _progress_update(progress, int((99.0 * translated_characters) / total_characters), __language__(33064), '%d/%d' % (translated_count, total_lines))
+    _show_translation_status(
+      _translation_status(33340, translated_count) if translated_count else __language__(33328),
+      1 if pending_chunks else None,
+    )
     while pending_chunks:
       try:
         if progress.iscanceled():
@@ -2893,11 +3065,11 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       block_index += 1
       block_started_at = time.monotonic()
       block_attempts = [1]
+      translation_attempt = [0]
       def _request_translation_block():
-        request_status = {'attempt': 1, 'started_at': time.monotonic()}
+        translation_attempt[0] += 1
+        request_status = TranslationRequestProgress()
         last_update = [0.0]
-        def _request_attempt_started(attempt):
-          request_status.update(attempt=attempt, started_at=time.monotonic())
 
         def _poll_translation():
           now = time.monotonic()
@@ -2905,14 +3077,20 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
             return
           last_update[0] = now
           _keep_translation_awake()
-          elapsed = int(now - request_status['started_at'])
-          if request_status['attempt'] > 1:
-            message = _translation_status(33317,
-              translated_count, total_lines, request_status['attempt'], OPENAI_MAX_REQUEST_ATTEMPTS, elapsed,
-            )
+          state = request_status.snapshot()
+          if state['phase'] == 'retry_wait':
+            message = _translation_status(33334, state['next_attempt'], OPENAI_MAX_REQUEST_ATTEMPTS, state['remaining'])
+          elif state['phase'] == 'receiving':
+            message = _translation_status(33335, (state.get('response_bytes', 0) + 1023) // 1024)
+          elif state['phase'] == 'checking':
+            message = _translation_status(33336)
+          elif state['attempt'] > 1:
+            message = _translation_status(33333, state['attempt'], OPENAI_MAX_REQUEST_ATTEMPTS, state['elapsed'])
+          elif translation_attempt[0] > 1:
+            message = _translation_status(33343, translation_attempt[0], 2, state['elapsed'])
           else:
-            message = _translation_status(33316, translated_count, total_lines, elapsed)
-          _progress_update(progress, int((99.0 * translated_characters) / total_characters), __language__(33064), message)
+            message = _translation_status(33332, state['elapsed'])
+          _show_translation_status(message, completed_blocks + 1)
 
         def _translate_worker(cancel_event):
           if cancel_event.is_set():
@@ -2926,18 +3104,21 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
             timeout_seconds,
             context=translation_context,
             cancel_event=cancel_event,
-            progress_callback=_request_attempt_started,
+            progress_callback=request_status.attempt_started,
+            status_callback=request_status.report,
           )
 
+        waiting_message = _translation_status(33343, translation_attempt[0], 2, 0) if translation_attempt[0] > 1 else _translation_status(33332, 0)
+        _show_translation_status(waiting_message, completed_blocks + 1)
         job = CancellableJob(_translate_worker).start()
-        return _wait_for_network_job(job, progress, __language__(33072), on_poll=_poll_translation)
+        result = _wait_for_network_job(job, progress, __language__(33072), on_poll=_poll_translation)
+        _show_translation_status(_translation_status(33336), completed_blocks + 1)
+        return result
 
       def _record_translation_block_failure(attempt, exc):
         block_attempts[0] = attempt
-        _progress_update(
-          progress, int((99.0 * translated_characters) / total_characters),
-          __language__(33064), '%d/%d (%d/2)' % (translated_count, total_lines, min(attempt + 1, 2)),
-        )
+        if attempt < 2:
+          _show_translation_status(_translation_status(33337, attempt + 1, 2), completed_blocks + 1)
         if isinstance(exc, TranslationValidationError) and getattr(exc, 'source_echo_check_fired', False):
           _log('ai translation source-echo check fired: block=%d attempt=%d' % (block_index, attempt), LOG_WARNING)
         _log(
@@ -2966,6 +3147,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
         if len(chunk_lines) > 1 and not source_echo:
           midpoint = len(chunk_lines) // 2
           pending_chunks[0:0] = [chunk_lines[:midpoint], chunk_lines[midpoint:]]
+          total_blocks += 1
           _log(
             'ai translation block %d failed after %d attempts; splitting %d lines into %d and %d: %s'
             % (block_index, block_attempts[0], len(chunk_lines), midpoint, len(chunk_lines) - midpoint, exc),
@@ -2999,6 +3181,10 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
         chunk_lines[item_index].text = translated_lines[item_index]
 
       completed_translations.extend(translated_lines)
+      translated_count += len(chunk_lines)
+      translated_characters += sum(len(line) for line in request_lines)
+      completed_blocks += 1
+      _show_translation_status(_translation_status(33338))
       if checkpoint is not None:
         try:
           checkpoint.save(completed_translations)
@@ -3006,9 +3192,6 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
           _log('ai translation checkpoint save failed: %s' % exc, LOG_WARNING)
       translation_context['previous_source_lines'] = request_lines[-3:]
       translation_context['previous_translated_lines'] = translated_lines[-2:]
-      translated_count += len(chunk_lines)
-      translated_characters += sum(len(line) for line in request_lines)
-      _progress_update(progress, int((99.0 * translated_characters) / total_characters), __language__(33064), '%d/%d' % (translated_count, total_lines))
 
     _log(
       'ai translation summary: blocks=%d translated_lines=%d/%d'
@@ -3025,6 +3208,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       pass
 
     temp_output = os.path.join(__temp__, '%s.srt' % (str(uuid.uuid4())))
+    _show_translation_status(_translation_status(33339))
     subtitle_data.save(temp_output, encoding='utf-8', format_='srt')
 
     translated_path = _build_translated_subtitle_path(source_subtitle_path, target_language_code)
@@ -3035,7 +3219,7 @@ def _translate_subtitle_file(source_subtitle_path, source_language_code, target_
       raise RuntimeError(__language__(33071))
 
     _log('ai translation wrote subtitle=%s model=%s' % (translated_path, model), LOG_INFO)
-    _progress_update(progress, 100, __language__(33064), '%d/%d' % (translated_count, total_lines))
+    _show_translation_status(_translation_status(33341), complete=True)
     if checkpoint is not None:
       try:
         checkpoint.clear()
@@ -3299,43 +3483,24 @@ def _run_restore_backup_action():
     _log('restore backup failed for %s (%s)' % (target_path, exc), LOG_WARNING)
 
 def _build_download_query(video_basename):
-  base = _normalize_video_basename(video_basename)
-  if not base:
-    return ''
-
-  tokens = re.findall(r'[a-z0-9]+', base.lower())
-  if len(tokens) == 0:
-    return base
-
-  ignore_tokens = set([
-    '1080p', '720p', '2160p', '480p', 'x264', 'x265', 'h264', 'h265', 'hevc', 'bluray', 'brrip',
-    'webdl', 'webrip', 'web', 'hdr', 'dv', 'aac', 'dts', 'ddp5', 'atmos', 'proper', 'repack', 'yts',
-    'bdremux', 'remux',
-    'eng', 'ita', 'rus', 'ger', 'fre', 'spa', 'por', 'jpn', 'kor', 'ara', 'tur', 'multi',
-    'yify', 'rarbg', 'am'
-  ])
-
-  filtered = []
-  for token in tokens:
-    if token in ignore_tokens:
-      continue
-    if _canonicalize_language_code(token):
-      continue
-    if re.match(r'^\d{3,4}p$', token):
-      continue
-    if len(token) <= 2 and not re.match(r'^\d{4}$', token):
-      continue
-    filtered.append(token)
-
-  if len(filtered) == 0:
-    filtered = tokens
-  return ' '.join(filtered[:8])
+  return clean_filename_title(_normalize_video_basename(video_basename))
 
 def _build_download_context(video_dir, video_basename):
   safe_video_basename = _normalize_video_basename(video_basename, fallback=_as_text(video_basename).strip())
   query = _build_download_query(safe_video_basename)
   season, episode = _extract_season_episode(safe_video_basename)
   metadata = _current_video_metadata()
+  season = metadata.get('season') or season
+  episode = metadata.get('episode') or episode
+  is_tvshow = bool(metadata.get('tvshow_title') or (season and episode))
+  title = metadata.get('tvshow_title') if is_tvshow else (
+    metadata.get('original_title') or metadata.get('title'))
+  if title and _normalize_video_basename(title).lower() == safe_video_basename.lower():
+    title = _build_download_query(title)
+  query = title or query
+  year = _as_text(metadata.get('year', ''))
+  if not re.match(r'^(19|20)\d{2}$', year):
+    year = _extract_release_year(safe_video_basename)
   video_path = _current_video_file_path()
   file_hash, file_size = _compute_file_hash_and_size(video_path)
   return {
@@ -3343,12 +3508,14 @@ def _build_download_context(video_dir, video_basename):
     'video_basename': safe_video_basename,
     'video_path': video_path,
     'query': query,
-    'year': _extract_release_year(safe_video_basename),
+    # An episode's air year is often different from the series' start year.
+    'year': '' if is_tvshow else year,
     'season': season,
     'episode': episode,
-    'is_tvshow': bool(season and episode),
+    'is_tvshow': is_tvshow,
     'imdb_id': metadata.get('imdb_id', ''),
     'title': metadata.get('title', ''),
+    'original_title': metadata.get('original_title', ''),
     'tvshow_title': metadata.get('tvshow_title', ''),
     'file_hash': file_hash,
     'video_hash': file_hash,
@@ -3472,10 +3639,7 @@ def _extract_release_year(text):
   tokens = re.findall(r'\b(19\d{2}|20\d{2})\b', _as_text(text))
   if len(tokens) == 0:
     return ''
-  for token in tokens:
-    if token not in ['1080', '2160', '720', '480']:
-      return token
-  return tokens[0]
+  return tokens[-1]
 
 def _normalize_release_token(token):
   value = _as_text(token).lower().strip()
@@ -3561,6 +3725,8 @@ def _build_release_signature(text):
 def _evaluate_download_sync_likelihood(video_basename, release_name, result):
   # Heuristic scoring inspired by a4kSubtitles matching ideas, re-implemented for this addon.
   provider_tier = _as_text(result.get('provider_sync_tier', '')).lower()
+  if result.get('hash_match'):
+    provider_tier = 'exact'
   if provider_tier not in ['exact', 'likely']:
     provider_tier = ''
 
@@ -3659,6 +3825,10 @@ def _evaluate_download_sync_likelihood(video_basename, release_name, result):
   if provider_tier == 'exact':
     tier = 'exact'
     score = max(score, 95)
+    # A verified file match is stronger evidence than release-name guesses.
+    if result.get('hash_match'):
+      hard_conflict = False
+      title_strict_ok = True
   elif score >= 88 and similarity_score >= 65 and not hard_conflict and title_strict_ok:
     tier = 'exact'
   elif score >= 60 and not hard_conflict and title_strict_ok:
@@ -3697,9 +3867,12 @@ def _download_candidate_sort_key(item):
     tier_score = 200 + sync_score
 
   return (
+    -int(bool(item.get('hash_match'))),
     -tier_rank,
     -tier_score,
     -sync_score,
+    int(bool(item.get('ai_translated') or item.get('machine_translated'))),
+    -int(bool(item.get('from_trusted'))),
     -int(item.get('rank_score', 0)),
     -int(item.get('similarity_score', 0)),
     -int(item.get('provider_score', 0)),
@@ -4289,6 +4462,10 @@ def _serialize_download_result_for_cache(result):
     'language': _as_text(result.get('language', '')),
     'release_name': _as_text(result.get('release_name', '')),
     'hearing_impaired': bool(result.get('hearing_impaired')),
+    'hash_match': bool(result.get('hash_match')),
+    'from_trusted': bool(result.get('from_trusted')),
+    'ai_translated': bool(result.get('ai_translated')),
+    'machine_translated': bool(result.get('machine_translated')),
     'provider_score': int(result.get('provider_score', 0)),
     'download_count': int(result.get('download_count', 0)),
     'sync_tier': _as_text(result.get('sync_tier', 'unknown')).lower(),
@@ -4396,6 +4573,7 @@ def _restore_provider_timeout(provider, original_timeout):
 def _search_download_results(context, language_code, progress=None):
   providers = _get_ready_download_providers()
   max_results = _get_download_max_results()
+  candidate_limit = max(120, max_results * 3)
   _log(
     'download search start: language=%s query=%s imdb=%s year=%s season=%s episode=%s providers=%s'
     % (
@@ -4422,7 +4600,7 @@ def _search_download_results(context, language_code, progress=None):
 
   def _cache_key(provider):
     provider_key = _as_text(getattr(provider, 'name', 'provider')).lower()
-    return (provider_key, _as_text(context.get('video_hash', context.get('file_hash', ''))), _as_text(language_code).lower())
+    return search_cache_key(provider_key, context, _as_text(language_code), candidate_limit)
 
   def _provider_search_worker(provider, cache_key):
     def _operation(cancel_event):
@@ -4432,7 +4610,8 @@ def _search_download_results(context, language_code, progress=None):
         if cancel_event.is_set():
           raise JobCancelled()
         original_timeout = _apply_provider_deadline(provider, deadline_at)
-        results = provider.search(context, language_code, max_results)
+        search_context = dict(context, cancel_event=cancel_event)
+        results = provider.search(search_context, language_code, candidate_limit)
         if cancel_event.is_set():
           raise JobCancelled()
         return {'provider': provider, 'cache_key': cache_key, 'results': results, 'started_at': started_at}

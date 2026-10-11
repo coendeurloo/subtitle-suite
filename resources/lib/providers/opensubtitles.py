@@ -2,6 +2,10 @@
 
 import json
 import time
+import re
+
+from ..languages import normalize_language_code
+from ..subtitle_search import clean_filename_title
 
 from .base import (
     SubtitleProviderBase,
@@ -105,9 +109,22 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
             for header_key, header_value in self._headers(token).items():
                 request.add_header(header_key, header_value)
 
+            timeout = self.timeout_seconds
+            deadline = getattr(self, '_search_deadline', None)
+            cancel_event = getattr(self, '_search_cancel_event', None)
+            if cancel_event is not None and cancel_event.is_set():
+                raise ProviderRequestError('OpenSubtitles search cancelled.')
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProviderRequestError('OpenSubtitles search timed out.')
+                timeout = min(timeout, remaining)
             try:
-                response = urlopen(request, timeout=self.timeout_seconds)
-                body = response.read()
+                response = urlopen(request, timeout=timeout)
+                try:
+                    body = response.read()
+                finally:
+                    response.close()
                 return json.loads(body.decode('utf-8', 'replace'))
             except HTTPError as exc:
                 body = ''
@@ -197,67 +214,234 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
         self._token = token
         return self._token
 
-    def search(self, context, language_code, max_results):
-        token = self._login()
+    @staticmethod
+    def _flag(value):
+        return value is True or str(value).lower() in ('1', 'true', 'yes')
 
-        query = (context.get('query') or '').strip()
-        if not query:
-            query = (context.get('video_basename') or '').strip()
-        if not query:
-            raise ProviderRequestError('Search query is empty.')
+    @staticmethod
+    def _api_language(language_code):
+        language = str(language_code or '').strip().lower().replace('_', '-')
+        if language in ('pt-br', 'pt-pt', 'zh-cn', 'zh-tw'):
+            return language
+        language = normalize_language_code(language)
+        return {'pt': 'pt-pt', 'zh': 'zh-cn'}.get(language, language)
 
-        payload = self._request_json(
-            'GET',
-            '/subtitles',
-            payload=None,
-            token=token,
-            query_params={
-                'query': query,
-                'languages': language_code,
-                'order_by': 'download_count',
-                'order_direction': 'desc',
-            },
-        )
+    @staticmethod
+    def _imdb_number(value):
+        value = str(value or '').strip().lower()
+        return value[2:] if re.match(r'^tt\d{7,10}$', value) else (
+            value if re.match(r'^\d{7,10}$', value) else '')
 
-        data = payload.get('data') or []
+    @staticmethod
+    def _movie_title_key(value):
+        title = re.sub(r'(?i)\.(?:srt|ass|ssa|sub|vtt)$', '', _as_text(value).strip())
+        title = re.sub(r'^(?:19|20)\d{2}\s*[-:]\s*', '', title)
+        title = clean_filename_title(title)
+        return ''.join(character for character in title.casefold() if character.isalnum())
+
+    @staticmethod
+    def _feature_imdb_number(value):
+        digits = _as_text(value).strip().lower()
+        if digits.startswith('tt'):
+            digits = digits[2:]
+        return int(digits) if digits.isdigit() else 0
+
+    def _movie_matches_context(self, attributes, context, filename, hash_match=False):
+        """An API text search may return other films, even with title and year set."""
+        if hash_match:
+            return True
+
+        feature = attributes.get('feature_details') or {}
+        feature_type = _as_text(feature.get('feature_type')).strip().lower()
+        if feature_type and feature_type != 'movie':
+            return False
+
+        expected_imdb = self._feature_imdb_number(context.get('imdb_id'))
+        feature_imdb = self._feature_imdb_number(feature.get('imdb_id'))
+        if expected_imdb and feature_imdb:
+            return expected_imdb == feature_imdb
+
+        expected_titles = set()
+        for candidate in (context.get('original_title'), context.get('title'),
+                          context.get('query'), context.get('video_basename')):
+            key = self._movie_title_key(candidate)
+            if key:
+                expected_titles.add(key)
+        if not expected_titles:
+            return False
+
+        feature_title = feature.get('title') or feature.get('movie_name')
+        candidate_title = feature_title or attributes.get('release') or filename
+        if self._movie_title_key(candidate_title) not in expected_titles:
+            return False
+
+        expected_year = _as_text(context.get('year')).strip()
+        feature_year = _as_text(feature.get('year')).strip()
+        if (re.match(r'^(?:19|20)\d{2}$', expected_year) and
+                re.match(r'^(?:19|20)\d{2}$', feature_year) and
+                expected_year != feature_year):
+            return False
+        return True
+
+    def _search_plans(self, context):
+        """Keep file, title-ID and text lookups separate, as in the official addon."""
+        plans = []
+        moviehash = context.get('video_hash') or context.get('file_hash')
+        if moviehash:
+            plans.append(('hash', {'moviehash': moviehash, 'moviehash_match': 'only'}))
+        is_tvshow = bool(context.get('is_tvshow'))
+        media_type = 'episode' if is_tvshow else 'movie'
+        episode_filters = {}
+        if is_tvshow:
+            for source, target in [('season', 'season_number'), ('episode', 'episode_number')]:
+                value = str(context.get(source, '')).strip()
+                if value.isdigit():
+                    episode_filters[target] = int(value)
+        imdb_id = self._imdb_number(context.get('imdb_id'))
+        parent_id = self._imdb_number(context.get('parent_imdb_id'))
+        if parent_id and len(episode_filters) == 2:
+            plans.append(('identity', dict(episode_filters, parent_imdb_id=parent_id, type='episode')))
+        if imdb_id:
+            plans.append(('identity', {'imdb_id': imdb_id, 'type': media_type}))
+            # Kodi scrapers may supply the series ID instead of the episode ID.
+            if is_tvshow and imdb_id != parent_id and len(episode_filters) == 2:
+                plans.append(('identity', dict(episode_filters, parent_imdb_id=imdb_id, type='episode')))
+        title = (context.get('tvshow_title') if is_tvshow else
+                 context.get('original_title') or context.get('query') or context.get('title')) or context.get('query')
+        if title:
+            params = dict(episode_filters, query=str(title).strip(), type=media_type)
+            year = str(context.get('year') or '')
+            if not is_tvshow and re.match(r'^(19|20)\d{2}$', year):
+                plans.append(('text', dict(params, year=year)))
+            plans.append(('text', params))
+        # A translated title may be all the player knows. Try the other title if needed.
+        alternate = context.get('title') if not is_tvshow else ''
+        if alternate and alternate != title:
+            plans.append(('text', {'query': alternate, 'type': media_type}))
+        return plans
+
+    def _normalize_search_results(self, data, context, language, hash_lookup=False):
         normalized = []
         for item in data:
             attributes = item.get('attributes') or {}
-            files = attributes.get('files') or []
-            if not files:
+            result_language = self._api_language(attributes.get('language') or language)
+            if result_language != language:
                 continue
-            file_item = files[0] or {}
-            file_id = file_item.get('file_id')
-            if not file_id:
+            feature = attributes.get('feature_details') or {}
+            # A full subtitle search should not offer just the foreign dialogue.
+            if self._flag(attributes.get('foreign_parts_only')):
                 continue
-
-            download_count = _to_int(attributes.get('download_count'))
+            if context.get('is_tvshow'):
+                # Drop a known different episode, even if a broad lookup returned it.
+                wrong_episode = False
+                for source, field in [('season', 'season_number'), ('episode', 'episode_number')]:
+                    expected, actual = context.get(source), feature.get(field)
+                    if str(expected).isdigit() and actual is not None and str(actual).isdigit():
+                        if int(expected) != int(actual):
+                            wrong_episode = True
+                if wrong_episode:
+                    continue
+            downloads = _to_int(attributes.get('download_count'))
             ratings = _to_float(attributes.get('ratings'))
-            provider_score = int(min(100, (download_count / 80.0) * 65.0 + ratings * 7.0))
+            hash_match = hash_lookup and self._flag(attributes.get('moviehash_match'))
+            for file_item in attributes.get('files') or []:
+                file_id = _to_int(file_item.get('file_id'))
+                if file_id <= 0:
+                    continue
+                filename = file_item.get('file_name') or ''
+                if not context.get('is_tvshow') and not self._movie_matches_context(
+                        attributes, context, filename, hash_match=hash_match):
+                    continue
+                release = attributes.get('release') or filename or feature.get('title') or 'subtitle'
+                # Distinguish discs/files belonging to one release in the picker.
+                if len(attributes.get('files') or []) > 1 and filename:
+                    release = filename
+                normalized.append({
+                    'provider': self.display_name,
+                    'provider_key': self.name,
+                    'file_id': file_id,
+                    'file_name': filename,
+                    'language': result_language,
+                    'release_name': release,
+                    'hearing_impaired': self._flag(attributes.get('hearing_impaired')),
+                    'provider_score': int(min(100, (downloads / 80.0) * 65.0 + ratings * 7.0)),
+                    'download_count': downloads,
+                    'rating': ratings,
+                    'from_trusted': self._flag(attributes.get('from_trusted')),
+                    'ai_translated': self._flag(attributes.get('ai_translated')),
+                    'machine_translated': self._flag(attributes.get('machine_translated')),
+                    'hash_match': hash_match,
+                    'provider_sync_tier': 'exact' if hash_match else '',
+                    '_provider_ref': self,
+                })
+        return normalized
 
-            release_name = attributes.get('release') or ''
-            if not release_name:
-                release_name = file_item.get('file_name') or ''
-            if not release_name:
-                feature_details = attributes.get('feature_details') or {}
-                release_name = feature_details.get('title') or 'subtitle'
-
-            normalized.append({
-                'provider': self.display_name,
-                'provider_key': self.name,
-                'file_id': int(file_id),
-                'language': (attributes.get('language') or language_code or '').lower(),
-                'release_name': release_name,
-                'hearing_impaired': bool(attributes.get('hearing_impaired')),
-                'provider_score': provider_score,
-                'download_count': download_count,
-                'rating': ratings,
-                'provider_sync_tier': 'exact' if bool(attributes.get('moviehash_match', False)) else '',
-                '_provider_ref': self,
-            })
-
-        normalized.sort(key=lambda item: (-item.get('provider_score', 0), -item.get('download_count', 0), item.get('release_name', '').lower()))
-        return normalized[:max_results]
+    def search(self, context, language_code, max_results):
+        language = self._api_language(language_code)
+        plans = self._search_plans(context)
+        if not plans:
+            raise ProviderRequestError('Search query is empty.')
+        self._search_deadline = time.monotonic() + self.timeout_seconds
+        if context.get('deadline_at') is not None:
+            self._search_deadline = min(self._search_deadline, context['deadline_at'])
+        self._search_cancel_event = context.get('cancel_event')
+        try:
+            token = self._login()
+            found = {}
+            identity_found = False
+            text_found = False
+            requests = 0
+            successful_requests = 0
+            last_error = None
+            for strategy, lookup in plans:
+                if strategy == 'identity' and identity_found:
+                    continue
+                if strategy == 'text' and (identity_found or text_found):
+                    continue
+                # Fetch a whole page before ranking locally; do not keep only the
+                # first 12 popular releases. Limit extra pages and fallback calls.
+                for page in range(1, 3):
+                    if (requests >= 6 or len(found) >= max_results or
+                            time.monotonic() >= self._search_deadline or
+                            (self._search_cancel_event is not None and self._search_cancel_event.is_set())):
+                        break
+                    params = dict(lookup, languages=language, page=page,
+                                  order_by='download_count', order_direction='desc',
+                                  foreign_parts_only='exclude')
+                    requests += 1
+                    try:
+                        payload = self._request_json('GET', '/subtitles', token=token, query_params=params)
+                    except ProviderAuthError:
+                        raise
+                    except ProviderRequestError as exc:
+                        last_error = exc
+                        self._safe_log('search %s page %d failed: %s' % (strategy, page, exc))
+                        break
+                    successful_requests += 1
+                    page_items = payload.get('data') or []
+                    matches = self._normalize_search_results(page_items, context, language,
+                                                             hash_lookup=strategy == 'hash')
+                    if matches and strategy == 'identity':
+                        identity_found = True
+                    if matches and strategy == 'text':
+                        text_found = True
+                    for result in matches:
+                        previous = found.get(result['file_id'])
+                        if previous is None or (result['hash_match'] and not previous['hash_match']):
+                            found[result['file_id']] = result
+                    self._safe_log('search %s page %d: %d candidates' % (strategy, page, len(matches)))
+                    # The API can fill a page with unrelated films. A later
+                    # page may still contain the title we actually searched for.
+                    if not page_items or page >= _to_int(payload.get('total_pages') or 1):
+                        break
+            if not found and last_error is not None and successful_requests == 0:
+                raise last_error
+            # The caller ranks this pool against the playing release before
+            # applying the user's display limit. Preserve verified file matches.
+            return list(found.values())
+        finally:
+            self._search_deadline = None
+            self._search_cancel_event = None
 
     def download(self, result):
         token = self._login()

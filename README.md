@@ -17,6 +17,12 @@ The goal is simple: **fewer clicks, safer automation, better sync outcomes**.
 - AI translation fallback when target language subtitles are missing.
 - Safe file strategy with backups in `DualSubtitles`.
 
+Search uses the playing video's IMDb ID, show/episode details and file hash when
+available, with a title search as a fallback. OpenSubtitles candidates are ranked
+against your video before the configured result limit is applied. Verified file
+matches come first. The comparison and changes are described in
+[the search comparison](docs/SUBTITLE_SEARCH_COMPARISON.md).
+
 ## Main Menu Actions
 
 - `Find & Download Subtitles...`
@@ -117,7 +123,7 @@ AI translation is optional and manual key-based.
 
 - Requires OpenAI API key and model in settings.
 - Used as fallback in Lucky flows or directly via manual action.
-- Progress now shows explicit direction (for example: `Translating English to Dutch using AI...`).
+- Progress shows the language pair, current block, completed lines and elapsed time, with separate messages for waiting, receiving, checking and saving. Connection retries show a countdown; translation retries are labelled separately. The percentage counts confirmed translated text and reaches 100% after saving.
 - Each response block must contain a complete translation. Invalid or source-echoed blocks retry once; a second failure stops the translation without changing an existing subtitle file.
 - Translation uses smaller blocks and retries temporary network/server failures before stopping.
 - Playback is paused during translation steps and resumed afterward.
