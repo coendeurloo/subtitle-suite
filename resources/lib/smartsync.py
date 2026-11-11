@@ -39,8 +39,7 @@ LOCAL_WINDOW_SCAN_RANGE_MS = 30000
 LOCAL_SYNC_P90_LOW_CONFIDENCE_MS = 3000
 KNOT_JUMP_LOW_CONFIDENCE_MS = 45000
 KNOT_SPAN_LOW_CONFIDENCE_MS = 90000
-FPS_RATIO_MARGIN_THRESHOLD = 0.15
-FPS_DETECTION_SAMPLE_ITEMS = 96
+FPS_RATIO_MARGIN_THRESHOLD = 0.06
 FPS_DETECTION_OFFSET_STEP_MS = 2000
 FRAME_RATE_RATIOS = (
     ('1.0', 1.0),
@@ -312,14 +311,15 @@ def _scale_subtitle_timings(subs, factor):
     return scaled
 
 
-def detect_frame_rate_ratio(reference_subs, target_subs, progress_callback=None, cancel_event=None):
-    """Choose a safe known frame-rate ratio using sampled interval overlap.
+def detect_frame_rate_ratio(reference_subs, target_subs, progress_callback=None, cancel_event=None,
+                            unchanged_alignment=None):
+    """Compare known frame-rate ratios on the full dialogue timelines.
 
     ``ratio`` follows the historical conversion notation; the target timeline
     is scaled by ``1 / ratio`` before evaluating its best global offset.
     """
-    reference_points = _sample_points(_subtitle_points(reference_subs), FPS_DETECTION_SAMPLE_ITEMS)
-    target_points = _sample_points(_subtitle_points(target_subs), FPS_DETECTION_SAMPLE_ITEMS)
+    reference_points = _subtitle_points(reference_subs)
+    target_points = _subtitle_points(target_subs)
     result = {
         'ratio': 1.0,
         'name': '1.0',
@@ -337,31 +337,40 @@ def detect_frame_rate_ratio(reference_subs, target_subs, progress_callback=None,
         def ratio_progress(done, total):
             _report_progress(progress_callback, 'speed', index + float(done) / total,
                              len(FRAME_RATE_RATIOS), cancel_event)
-        scaled_target = _scale_points(target_points, 1.0 / ratio)
-        offset, score = _scan_best_global_offset(
-            reference_points,
-            scaled_target,
-            coarse_step=FPS_DETECTION_OFFSET_STEP_MS,
-            fine_step=0,
-            return_score=True,
-            progress_callback=ratio_progress,
-            cancel_event=cancel_event,
-        )
+        if ratio == 1.0 and unchanged_alignment is not None:
+            offset, score = unchanged_alignment
+            scaled_target = target_points
+        else:
+            scaled_target = _scale_points(target_points, 1.0 / ratio)
+            offset, score = _scan_best_global_offset(
+                reference_points,
+                scaled_target,
+                coarse_step=FPS_DETECTION_OFFSET_STEP_MS,
+                fine_step=GLOBAL_SCAN_FINE_STEP_MS,
+                return_score=True,
+                progress_callback=ratio_progress,
+                cancel_event=cancel_event,
+            )
         candidates.append({
             'ratio': float(ratio),
             'name': name,
             'offset_ms': int(round(offset)),
-            'score': float(score),
+            'score': score / sum(point['end'] - point['start'] for point in scaled_target),
         })
 
     # Prefer no correction for an exact tie, which makes doing nothing the
     # safe default for ordinary in-sync or plain-offset subtitle pairs.
     candidates.sort(key=lambda item: (-item['score'], 0 if item['ratio'] == 1.0 else 1, abs(item['ratio'] - 1.0)))
     winner = candidates[0]
-    runner_up = candidates[1] if len(candidates) > 1 else {'score': 0.0}
+    runner_up = candidates[1]
+    unchanged = next(item for item in candidates if item['ratio'] == 1.0)
     margin = 0.0
     if winner['score'] > 0:
-        margin = (winner['score'] - runner_up['score']) / winner['score']
+        # PAL conversions for 24 and 23.976 are close enough that both can
+        # score well. Measure the benefit against leaving the speed unchanged.
+        margin = (winner['score'] - unchanged['score']) / winner['score']
+
+    scaled_winner = _scale_points(target_points, 1.0 / winner['ratio'])
 
     result.update({
         'ratio': winner['ratio'],
@@ -370,12 +379,51 @@ def detect_frame_rate_ratio(reference_subs, target_subs, progress_callback=None,
         'score': winner['score'],
         'runner_up_score': runner_up['score'],
         'margin': round(margin, 4),
-        'applied': bool(winner['ratio'] != 1.0 and margin > FPS_RATIO_MARGIN_THRESHOLD),
+        'applied': (winner['ratio'] != 1.0 and margin > FPS_RATIO_MARGIN_THRESHOLD and
+                    _stable_timeline(reference_points, scaled_winner, winner['offset_ms'], min_overlap=0.60)),
     })
     if not result['applied']:
         result['ratio'] = 1.0
         result['name'] = '1.0'
+        result['offset_ms'] = unchanged['offset_ms']
     return result
+
+
+def _stable_timeline(reference_points, target_points, offset, min_overlap=0.80, progress_callback=None):
+    """Require dialogue overlap throughout the shared timeline."""
+    if not reference_points:
+        return False
+    reference_intervals = [(point['start'], point['end']) for point in reference_points]
+    first_reference_start = reference_points[0]['start']
+    intervals = [(point['start'], point['end']) for point in target_points
+                 if point['end'] + offset > first_reference_start]
+    if len(intervals) < 36 or intervals[-1][0] - intervals[0][0] < 120000:
+        return False
+    for index in range(3):
+        if progress_callback:
+            progress_callback(index, 3)
+        section = intervals[index * len(intervals) // 3:(index + 1) * len(intervals) // 3]
+        duration = sum(end - start for start, end in section)
+        if _interval_overlap_score(reference_intervals, section, offset) < min_overlap * duration:
+            return False
+    return True
+
+
+def _opening_cues_before_reference(reference_points, target_points, offset):
+    # Only remove a short, clearly displaced prefix. Cues crossing the first
+    # reference cue can contain real dialogue and should be retained.
+    if offset > -2500 or not reference_points or not target_points:
+        return set()
+    if target_points[0]['end'] + offset > 0:
+        return set()
+    first_reference_start = reference_points[0]['start']
+    removed = set()
+    for point in target_points:
+        if (point['end'] + offset > first_reference_start or
+                point['end'] - target_points[0]['start'] > 120000):
+            break
+        removed.add(point['id'])
+    return removed if len(removed) >= 2 else set()
 
 
 def _nearest_reference_point(reference_starts, reference_start_lookup, value):
@@ -486,29 +534,6 @@ def _estimate_global_offset(reference_points, target_points, progress_callback=N
     return _median(refined_offsets)
 
 
-def _estimate_opening_index_offset(reference_points, target_points, max_items=180, trim_ms=8000, min_samples=60):
-    sample_count = min(max_items, len(reference_points), len(target_points))
-    if sample_count < min_samples:
-        return None
-
-    offsets = []
-    for index in range(sample_count):
-        offsets.append(float(reference_points[index]['start'] - target_points[index]['start']))
-
-    center = _median(offsets)
-    kept = [offset for offset in offsets if abs(offset - center) <= trim_ms]
-    if len(kept) < min_samples:
-        return None
-
-    opening_offset = _median(kept)
-    spread = _median([abs(offset - opening_offset) for offset in kept])
-    return {
-        'offset': float(opening_offset),
-        'spread': float(spread),
-        'count': len(kept),
-    }
-
-
 def _build_offset_knots(reference_points, target_points, global_offset, progress_callback=None, cancel_event=None):
     if not target_points:
         return [{'time': 0.0, 'offset': float(global_offset), 'count': 0}]
@@ -589,6 +614,8 @@ def _offset_at_time(knots, timestamp):
         left = knots[index - 1]
         right = knots[index]
         if timestamp <= right['time']:
+            if right.get('step'):
+                return right['offset'] if timestamp == right['time'] else left['offset']
             span = right['time'] - left['time']
             if span <= 0:
                 return right['offset']
@@ -706,6 +733,87 @@ def _evaluate_alignment(reference_points, synced_points):
     }
 
 
+def _section_alignment(reference_points, target_points):
+    """Measure ordered cue matches and dialogue overlap across the whole file."""
+    starts = sorted(point['start'] for point in reference_points)
+    intervals = sorted((point['start'], point['end']) for point in reference_points)
+    target = sorted(target_points, key=lambda point: point['start'])
+    if not starts or not target:
+        return {'verified': False, 'score': 0.0, 'preview_ms': 0}
+    reference_span = max(1, starts[-1] - starts[0])
+    sections = 3 if len(target) >= 24 else 1
+    scores = []
+    next_reference = 0
+    for index in range(sections):
+        section = target[index * len(target) // sections:(index + 1) * len(target) // sections]
+        matches = 0
+        for point in section:
+            start = point['start']
+            candidate = bisect_left(starts, start - MATCH_OK_THRESHOLD_MS, lo=next_reference)
+            if candidate < len(starts) and starts[candidate] <= start + MATCH_OK_THRESHOLD_MS:
+                matches += 1
+                next_reference = candidate + 1
+        target_intervals = [(point['start'], point['end']) for point in section]
+        duration = sum(end - start for start, end in target_intervals)
+        overlap = _interval_overlap_score(intervals, target_intervals, 0) / max(1, duration)
+        score = min(overlap, matches / len(section))
+        scores.append((score, section[len(section) // 2]['start']))
+    score, preview_ms = min(scores)
+    shared_span = min(starts[-1], target[-1]['start']) - max(starts[0], target[0]['start'])
+    return {
+        'verified': len(target) >= 8 and score >= 0.72 and shared_span >= 0.75 * reference_span,
+        'score': score,
+        'preview_ms': preview_ms,
+    }
+
+
+def _find_cut_knots(reference_points, target_points, seed, progress_callback, cancel_event):
+    """Use a step only when a single cut gives strong matches on both sides."""
+    if len(target_points) < 36:
+        return None
+    reference = [(point['start'], point['end']) for point in reference_points]
+    target = [(point['start'], point['end']) for point in target_points]
+    third = len(target) // 3
+    left, _ = _best_offset_for_window(reference, target[:third], seed, cancel_event=cancel_event)
+    right, _ = _best_offset_for_window(reference, target[-third:], seed, cancel_event=cancel_event)
+    if abs(left - right) < 2000:
+        return None
+
+    # Build cumulative overlap once per offset to score every candidate gap.
+    prefixes = []
+    starts = [start for start, _ in reference]
+    longest_cue = max((end - start for start, end in reference), default=0)
+    for offset in (left, right):
+        cumulative = [0.0]
+        for start, end in target:
+            first = bisect_left(starts, start + offset - longest_cue)
+            last = bisect_left(starts, end + offset)
+            overlap = _interval_overlap_score(reference[first:last], [(start, end)], offset)
+            cumulative.append(cumulative[-1] + overlap)
+        prefixes.append(cumulative)
+    duration = [0]
+    for start, end in target:
+        duration.append(duration[-1] + end - start)
+    baseline = max(prefixes[0][-1], prefixes[1][-1], _interval_overlap_score(reference, target, seed))
+    best = None
+    best_score = baseline + 0.08 * duration[-1]
+    for index in range(third // 2, len(target) - third // 2):
+        _report_progress(progress_callback, 'sections', index, len(target), cancel_event)
+        previous_end, next_start = target[index - 1][1], target[index][0]
+        if previous_end >= next_start or previous_end + left >= next_start + right:
+            continue
+        before = prefixes[0][index]
+        after = prefixes[1][-1] - prefixes[1][index]
+        if (before + after > best_score and before >= 0.80 * duration[index] and
+                after >= 0.80 * (duration[-1] - duration[index])):
+            best = next_start
+            best_score = before + after
+    if best is None:
+        return None
+    return [{'time': target[0][0], 'offset': left, 'count': len(target)},
+            {'time': best, 'offset': right, 'count': len(target), 'step': True}]
+
+
 def assess_pair(reference_subs, target_subs):
     reference_points = _subtitle_points(reference_subs)
     target_points = _subtitle_points(target_subs)
@@ -775,11 +883,39 @@ def assess_pair(reference_subs, target_subs):
     }
 
 
-def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True, progress_callback=None, cancel_event=None):
+def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True, progress_callback=None, cancel_event=None,
+               prefer_simple_alignment=False):
+    reference_points = _subtitle_points(reference_subs)
+    raw_points = _subtitle_points(target_subs)
+    raw_sections = _section_alignment(reference_points, raw_points)
     _report_progress(progress_callback, 'speed', 0, len(FRAME_RATE_RATIOS), cancel_event)
     detection_started_at = time.monotonic()
-    if enable_frame_rate_correction:
-        fps_detection = detect_frame_rate_ratio(reference_subs, target_subs, progress_callback, cancel_event)
+    initial_offset = None
+    unchanged_alignment = None
+    simple_alignment = False
+    if prefer_simple_alignment and reference_points and raw_points:
+        if (raw_sections['verified'] and raw_sections['score'] >= 0.78 and
+                _evaluate_alignment(reference_points, raw_points)['p90_error_ms'] <= 180):
+            initial_offset = 0
+            simple_alignment = True
+        elif enable_frame_rate_correction:
+            def simple_progress(done, total):
+                _report_progress(progress_callback, 'speed', float(done) / total, len(FRAME_RATE_RATIOS), cancel_event)
+            unchanged_alignment = _scan_best_global_offset(
+                reference_points, raw_points, fine_step=50, return_score=True,
+                progress_callback=simple_progress, cancel_event=cancel_event
+            )
+            initial_offset = unchanged_alignment[0]
+            opening = _opening_cues_before_reference(reference_points, raw_points, initial_offset)
+            shifted = [dict(point, start=point['start'] + initial_offset, end=point['end'] + initial_offset)
+                       for point in raw_points if point['id'] not in opening]
+            shifted_sections = _section_alignment(reference_points, shifted)
+            simple_alignment = (shifted_sections['verified'] and shifted_sections['score'] >= 0.85 and
+                                _evaluate_alignment(reference_points, shifted)['p90_error_ms'] <= 250)
+    if enable_frame_rate_correction and not simple_alignment:
+        fps_detection = detect_frame_rate_ratio(
+            reference_subs, target_subs, progress_callback, cancel_event, unchanged_alignment=unchanged_alignment
+        )
     else:
         fps_detection = {
             'ratio': 1.0, 'name': '1.0', 'offset_ms': 0, 'score': 0.0,
@@ -790,24 +926,41 @@ def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True, p
     if fps_detection['applied']:
         working_target_subs = _scale_subtitle_timings(target_subs, 1.0 / fps_detection['ratio'])
 
-    reference_points = _subtitle_points(reference_subs)
-    target_points = _subtitle_points(working_target_subs)
+    target_points = _subtitle_points(working_target_subs) if fps_detection['applied'] else raw_points
 
     _report_progress(progress_callback, 'shift', 0, 1, cancel_event)
     def shift_progress(done, total):
         _report_progress(progress_callback, 'shift', done, total, cancel_event)
-    global_offset = _estimate_global_offset(reference_points, target_points, shift_progress, cancel_event)
-    opening_offset = _estimate_opening_index_offset(reference_points, target_points)
-    if opening_offset is not None:
-        # Prefer stable opening alignment when global overlap scan drifts to another section.
-        if abs(global_offset - opening_offset['offset']) > 90000 and opening_offset['spread'] <= 3000:
-            global_offset = opening_offset['offset']
-
-    knots = _build_offset_knots(reference_points, target_points, global_offset, progress_callback, cancel_event)
+    if initial_offset is not None and not fps_detection['applied']:
+        global_offset = initial_offset
+        shift_progress(1, 1)
+    else:
+        global_offset = _scan_best_global_offset(reference_points, target_points, fine_step=50,
+                                                progress_callback=shift_progress, cancel_event=cancel_event)
+    def section_progress(done, total):
+        _report_progress(progress_callback, 'sections', done, total, cancel_event)
+    stable = simple_alignment or _stable_timeline(reference_points, target_points, global_offset,
+                              progress_callback=section_progress)
+    removed_cues = set()
+    if stable:
+        # Section searches can jump to unrelated dialogue in dense scenes.
+        # Keep a single offset when it fits the full episode.
+        knots = [{'time': 0, 'offset': global_offset, 'count': len(target_points)}]
+        removed_cues = _opening_cues_before_reference(reference_points, target_points, global_offset)
+        section_progress(3, 3)
+    else:
+        knots = _find_cut_knots(reference_points, target_points, global_offset, progress_callback, cancel_event)
+        if knots is None:
+            knots = _build_offset_knots(reference_points, target_points, global_offset, progress_callback, cancel_event)
     synced_subs = _apply_knots(working_target_subs, knots, progress_callback, cancel_event)
+    if removed_cues:
+        synced_subs.events = [event for index, event in enumerate(synced_subs.events)
+                              if index not in removed_cues]
     _report_progress(progress_callback, 'check', 0, 1, cancel_event)
     synced_points = _subtitle_points(synced_subs)
     metrics = _evaluate_alignment(reference_points, synced_points)
+    reference_dialogue = {point['text'] for point in reference_points if len(point['text']) >= 20}
+    target_dialogue = {point['text'] for point in raw_points if len(point['text']) >= 20}
     knot_quality = _knot_instability(knots)
     _report_progress(progress_callback, 'check', 1, 1, cancel_event)
     low_confidence = (
@@ -827,6 +980,12 @@ def sync_local(reference_subs, target_subs, enable_frame_rate_correction=True, p
         'fps_margin': fps_detection['margin'],
         'fps_applied': fps_detection['applied'],
         'fps_detection_ms': fps_detection_ms,
+        'simple_alignment': simple_alignment,
+        'trimmed_opening_cues': len(removed_cues),
+        'edit_cut_ms': next((int(k['time']) for k in knots if k.get('step')), None),
+        'same_dialogue': len(target_dialogue) >= 20 and len(reference_dialogue & target_dialogue) >= 0.65 * len(target_dialogue),
+        'raw_sections': raw_sections,
+        'synced_sections': _section_alignment(reference_points, synced_points),
         'synced_subs': synced_subs,
         'low_confidence': low_confidence,
     })

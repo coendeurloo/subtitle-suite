@@ -67,7 +67,7 @@ def _equal_text(t1, t2):
     return t1 == str(t2) or t1 == __language__(t2)
 
 
-def mergesubs(file):
+def mergesubs(file, preserve_timing=False):
     if len(file) < 2:
         bottom_top = True
         bottom_bottom = False
@@ -146,7 +146,7 @@ def mergesubs(file):
         subs[0].styles['top-style'] = top_style
         subs[0].styles['bottom-style'] = bottom_style
 
-    if __addon__.getSetting('autoShft') == 'true':
+    if not preserve_timing and __addon__.getSetting('autoShft') == 'true':
         timeThresh = int(__addon__.getSetting('autoShftAmt'))
     else:
         timeThresh = -1
@@ -159,7 +159,7 @@ def mergesubs(file):
     prevIndex2 = -1
     prevIndexBottom = -1
     prevIndexTop = -1
-    minTime = int(__addon__.getSetting('minTime'))
+    minTime = 0 if preserve_timing else int(__addon__.getSetting('minTime'))
 
     while i < l1 or j < l2:
         if i < l1:

@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import json
+import hashlib
 import difflib
 import time
 INTERPRETER_STARTED_AT = time.monotonic()
@@ -441,7 +442,7 @@ def unzip(zip_path, exts):
 
 def Download(filename):
   listitem = xbmcgui.ListItem(label=filename)
-  xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=filename, listitem=listitem, isFolder=False)
+  return xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=filename, listitem=listitem, isFolder=False)
 
 def _apply_subtitle_to_player_now(subtitle_path):
   path = _as_text(subtitle_path).strip()
@@ -461,35 +462,12 @@ def _apply_subtitle_to_player_now(subtitle_path):
     _log('setSubtitles failed for %s (%s)' % (path, exc), LOG_WARNING)
     return False
 
-def _refresh_active_subtitle_renderer(subtitle_path):
-  """Force Kodi to refresh subtitle rendering without user scrubbing."""
-  path = _as_text(subtitle_path).strip()
-  if not path:
-    return False
-  try:
-    player = xbmc.Player()
-    if not player.isPlayingVideo():
-      return False
-    try:
-      player.showSubtitles(False)
-      xbmc.sleep(90)
-    except Exception:
-      pass
-    player.setSubtitles(path)
-    try:
-      player.showSubtitles(True)
-    except Exception:
-      pass
-    # A tiny seek refresh mirrors the manual timeline scrub workaround.
-    try:
-      current_time = float(max(0.0, player.getTime()))
-      player.seekTime(current_time + 0.04)
-    except Exception:
-      pass
+def _activate_subtitle_for_playback(subtitle_path, register_download_item=True):
+  # Kodi's subtitle dialog activates the result when the plugin request ends.
+  # A direct action has no download callback and must load the file itself.
+  if register_download_item and int(sys.argv[1]) >= 0 and Download(subtitle_path):
     return True
-  except Exception as exc:
-    _log('subtitle renderer refresh failed for %s (%s)' % (path, exc), LOG_WARNING)
-    return False
+  return _apply_subtitle_to_player_now(subtitle_path)
 
 def _equal_text(setting_value, message_id):
   return setting_value == str(message_id) or setting_value == __language__(message_id)
@@ -706,14 +684,14 @@ class VideoContext(object):
         self.directory_listings[folder_path] = []
     return list(self.directory_listings[folder_path])
 
-  def read_subtitle_sample(self, path, max_read):
-    cache_key = (path, int(max_read))
+  def read_subtitle_sample(self, path, max_read, binary=False):
+    cache_key = (path, int(max_read), binary)
     if cache_key not in self.subtitle_samples:
       raw = None
       file_handle = None
       try:
         file_handle = xbmcvfs.File(path)
-        raw = file_handle.read(max_read)
+        raw = bytes(file_handle.readBytes(max_read)) if binary else file_handle.read(max_read)
       except Exception:
         raw = None
       finally:
@@ -881,6 +859,7 @@ def _current_video_metadata():
     return dict(action_context.metadata)
   metadata = {
     'imdb_id': '',
+    'parent_imdb_id': '',
     'title': '',
     'tvshow_title': '',
     'original_title': '',
@@ -996,6 +975,19 @@ def _current_video_metadata():
     try:
       metadata['tvshow_title'] = _as_text(xbmc.getInfoLabel('VideoPlayer.TVShowTitle')).strip()
     except Exception:
+      pass
+  if tag and metadata['season'] and metadata['episode']:
+    try:
+      episode_id = tag.getDbId()
+      if episode_id > 0:
+        request = {'jsonrpc': '2.0', 'id': 1, 'method': 'VideoLibrary.GetEpisodeDetails',
+                   'params': {'episodeid': episode_id, 'properties': ['tvshowid']}}
+        details = json.loads(xbmc.executeJSONRPC(json.dumps(request)))['result']['episodedetails']
+        request['method'] = 'VideoLibrary.GetTVShowDetails'
+        request['params'] = {'tvshowid': details['tvshowid'], 'properties': ['uniqueid']}
+        show = json.loads(xbmc.executeJSONRPC(json.dumps(request)))['result']['tvshowdetails']
+        metadata['parent_imdb_id'] = _normalize_imdb_id(show.get('uniqueid', {}).get('imdb'))
+    except (AttributeError, TypeError, ValueError, KeyError, RuntimeError):
       pass
 
   action_context.metadata = metadata
@@ -1767,7 +1759,7 @@ def _build_subtitle_prepicker_entries(folder_path, filter_season='', filter_epis
 
 def _get_dualsubtitles_work_dir_for_path(path):
   base_dir = os.path.dirname(path)
-  work_dir = os.path.join(base_dir, 'DualSubtitles')
+  work_dir = base_dir if os.path.basename(base_dir).lower() == 'dualsubtitles' else os.path.join(base_dir, 'DualSubtitles')
   try:
     xbmcvfs.mkdirs(work_dir)
   except Exception:
@@ -1946,6 +1938,8 @@ def _derive_output_base_name_from_subtitle(path):
   if not path:
     return 'DualSubtitles'
   base = os.path.splitext(os.path.basename(path))[0]
+  if base.lower().endswith('.smartsync'):
+    base = base[:-len('.smartsync')]
   match = re.match(r'^(.*?)[._-]([a-z]{2})$', base, re.IGNORECASE)
   if match:
     base = match.group(1)
@@ -2371,14 +2365,16 @@ def _run_smart_sync_job(operation, progress=None, minimum_percent=2):
     raise
 
 
-def _run_smart_sync_local(reference_path, target_path, progress=None):
+def _run_smart_sync_local(reference_path, target_path, progress=None, prefer_simple_alignment=False):
   return _run_smart_sync_job(
-    lambda report, cancel_event: _run_smart_sync_local_work(reference_path, target_path, report, cancel_event),
+    lambda report, cancel_event: _run_smart_sync_local_work(
+      reference_path, target_path, report, cancel_event, prefer_simple_alignment
+    ),
     progress,
   )
 
 
-def _run_smart_sync_local_work(reference_path, target_path, report, cancel_event):
+def _run_smart_sync_local_work(reference_path, target_path, report, cancel_event, prefer_simple_alignment=False):
   reference_subs = None
   target_subs = None
   reference_local = ''
@@ -2398,20 +2394,26 @@ def _run_smart_sync_local_work(reference_path, target_path, report, cancel_event
       target_subs,
       enable_frame_rate_correction=_is_smart_sync_frame_rate_correction_enabled(),
       progress_callback=report,
-      cancel_event=cancel_event
+      cancel_event=cancel_event,
+      prefer_simple_alignment=prefer_simple_alignment
     )
     _log_timing(
       'smartsync_fps_detection',
       time.monotonic() - (float(result.get('fps_detection_ms', 0)) / 1000.0),
-      'ratio=%s name=%s margin=%.4f applied=%s detection_ms=%s'
+      'ratio=%s name=%s margin=%.4f applied=%s detection_ms=%s simple_alignment=%s'
       % (
         result.get('fps_ratio', 1.0),
         result.get('fps_ratio_name', '1.0'),
         float(result.get('fps_margin', 0.0)),
         result.get('fps_applied', False),
         result.get('fps_detection_ms', 0),
+        result.get('simple_alignment', False),
       )
     )
+    _log('smart sync local result: offset_ms=%s trimmed_opening_cues=%s confidence=%.3f p90=%s' % (
+      result.get('estimated_global_offset_ms', 0), result.get('trimmed_opening_cues', 0),
+      result.get('confidence', 0.0), result.get('p90_error_ms', 0),
+    ), LOG_INFO)
     return result
   finally:
     if reference_local:
@@ -2675,11 +2677,13 @@ def _apply_synced_subtitle_to_target(target_path, synced_subs):
       'backup_path': _dualsubs_backup_path(target_path),
     }
 
-def _save_synced_subtitle_as_new_file(target_path, synced_subs):
+def _save_synced_subtitle_as_new_file(target_path, synced_subs, automatic=False):
   output_path = _build_smartsync_saved_output_path(target_path)
+  if automatic:
+    output_path = os.path.join(_get_dualsubtitles_work_dir_for_path(target_path), os.path.basename(output_path))
   local_synced_temp = _save_subtitle_to_temp(synced_subs)
   try:
-    write_result = _replace_file_with_dualsubs_backup(local_synced_temp, output_path, backup_existing=True)
+    write_result = _replace_file_with_dualsubs_backup(local_synced_temp, output_path, backup_existing=not automatic)
     xbmcvfs.delete(local_synced_temp)
     return {
       'play_path': output_path,
@@ -2858,7 +2862,8 @@ def _run_manual_smart_sync_action():
       subtitle1_dir=os.path.dirname(path_one),
       smart_sync_temp_files=temp_paths or [],
       show_notifications=False,
-      register_download_item=False
+      register_download_item=False,
+      preserve_timing=True
     )
 
   synced_count = 1
@@ -3514,6 +3519,7 @@ def _build_download_context(video_dir, video_basename):
     'episode': episode,
     'is_tvshow': is_tvshow,
     'imdb_id': metadata.get('imdb_id', ''),
+    'parent_imdb_id': metadata.get('parent_imdb_id', ''),
     'title': metadata.get('title', ''),
     'original_title': metadata.get('original_title', ''),
     'tvshow_title': metadata.get('tvshow_title', ''),
@@ -4718,7 +4724,42 @@ def _search_download_results(context, language_code, progress=None):
 
   return _rank_download_results(context.get('video_basename', ''), language_code, deduped)[:max_results]
 
-def _write_download_payload_to_target(context, language_code, selected_result):
+class SubtitleLanguageMismatch(RuntimeError):
+  pass
+
+
+def _russian_subtitle_has_language_mismatch(raw):
+  if isinstance(raw, bytes):
+    if raw.startswith((b'\xff\xfe\x00\x00', b'\x00\x00\xfe\xff')):
+      raw = raw.decode('utf-32', errors='replace')
+    elif raw.startswith((b'\xff\xfe', b'\xfe\xff')):
+      raw = raw.decode('utf-16', errors='replace')
+    else:
+      try:
+        raw = raw.decode('utf-8-sig')
+      except UnicodeDecodeError:
+        raw = raw.decode('cp1251', errors='replace')
+  if not raw:
+    return False
+  try:
+    subtitles = _load_pysubs2().SSAFile.from_string(raw, format_='srt')
+  except Exception:
+    return False
+
+  russian = other = 0
+  for cue in subtitles:
+    text = _normalize_subtitle_preview_text(cue.plaintext)
+    if _is_non_dialogue_cue(text):
+      continue
+    if re.search(r'[\u0400-\u052f]', text):
+      russian += 1
+    elif sum(character.isalpha() for character in text) >= 8:
+      other += 1
+  # Allow isolated foreign dialogue and lyrics in otherwise Russian subtitles.
+  return other >= 12 and other >= 0.40 * (russian + other)
+
+
+def _write_download_payload_to_target(context, language_code, selected_result, validate_candidate=None):
   provider = selected_result.get('_provider_ref')
   if provider is None:
     provider = _resolve_provider_for_cached_result(selected_result)
@@ -4736,6 +4777,10 @@ def _write_download_payload_to_target(context, language_code, selected_result):
   if not isinstance(data, bytes):
     data = _to_utf8_bytes(data)
 
+  target_language = _canonicalize_language_code(language_code) or language_code.lower()
+  if target_language == 'ru' and _russian_subtitle_has_language_mismatch(data):
+    raise SubtitleLanguageMismatch('Download rejected because it contains substantial non-Russian dialogue.')
+
   temp_subtitle = os.path.join(__temp__, '%s.srt' % (str(uuid.uuid4())))
   try:
     with open(temp_subtitle, 'wb') as file_handle:
@@ -4744,12 +4789,15 @@ def _write_download_payload_to_target(context, language_code, selected_result):
     _log('download temp write failed: %s' % (exc), LOG_WARNING)
     raise RuntimeError(__language__(33193))
 
-  target_language = _canonicalize_language_code(language_code) or language_code.lower()
   safe_video_basename = _normalize_video_basename(context.get('video_basename', ''), fallback='subtitle')
   target_path = os.path.join(context['video_dir'], '%s.%s.srt' % (safe_video_basename, target_language))
   try:
+    if validate_candidate is not None and not validate_candidate(temp_subtitle):
+      return ''
     _replace_file_with_dualsubs_backup(temp_subtitle, target_path, backup_existing=True)
     return target_path
+  except JobCancelled:
+    raise
   except Exception as exc:
     _log('download target write failed: path=%s error=%s' % (target_path, exc), LOG_WARNING)
     raise RuntimeError(__language__(33180))
@@ -4902,12 +4950,15 @@ def _download_best_result_for_language(
   retry_delay_seconds=0.9,
   progress_callback=None,
   progress_label='',
-  deadline_at=None
+  deadline_at=None,
+  validate_candidate=None,
+  excluded_candidates=()
 ):
   response = {
     'path': '',
     'result': None,
     'results': [],
+    'rejected_candidates': [],
   }
   if not video_dir or not video_basename or not language_code:
     return response
@@ -4955,6 +5006,9 @@ def _download_best_result_for_language(
     return response
 
   candidate_results = _build_sync_tier_candidates(results, required_tiers=required_tiers, fallback_to_top=fallback_to_top)
+  if excluded_candidates:
+    candidate_results = [item for item in candidate_results if
+                         (item.get('provider_key'), item.get('file_id')) not in excluded_candidates]
   if len(candidate_results) == 0:
     return response
   if fallback_to_top:
@@ -5040,7 +5094,16 @@ def _download_best_result_for_language(
         pass
 
     try:
-      target_path = _write_download_payload_to_target(context, normalized_language, selected_result)
+      if validate_candidate is None:
+        target_path = _write_download_payload_to_target(context, normalized_language, selected_result)
+      else:
+        target_path = _write_download_payload_to_target(
+          context, normalized_language, selected_result, validate_candidate=validate_candidate
+        )
+      if not target_path:
+        response['rejected_candidates'].append((selected_result.get('provider_key'), selected_result.get('file_id')))
+        _log('lucky rejected candidate after timing check: %s' % selected_result.get('release_name', ''), LOG_INFO)
+        continue
       response['path'] = target_path
       response['result'] = selected_result
       _log(
@@ -5056,6 +5119,12 @@ def _download_best_result_for_language(
         LOG_INFO
       )
       return response
+    except JobCancelled:
+      raise
+    except SubtitleLanguageMismatch as exc:
+      response['rejected_candidates'].append((selected_result.get('provider_key'), selected_result.get('file_id')))
+      _log('lucky rejected candidate: %s (%s)' % (selected_result.get('release_name', ''), exc), LOG_WARNING)
+      continue
     except RuntimeError as exc:
       _log(
         'lucky download write failed for %s attempt=%d/%d provider=%s release=%s error=%s'
@@ -5297,6 +5366,8 @@ def _download_lucky_selected_candidate(video_dir, video_basename, slot, selected
   try:
     target_path = _write_download_payload_to_target(context, language_code, selected_candidate)
     return target_path
+  except SubtitleLanguageMismatch:
+    raise
   except RuntimeError as exc:
     if _as_text(exc) == LUCKY_TIMEOUT_TOKEN:
       raise
@@ -5432,25 +5503,39 @@ def _assess_subtitle_pair_mismatch(reference_path, target_path):
     if target_local:
       xbmcvfs.delete(target_local)
 
-def _run_lucky_smartsync_to_reference(reference_path, target_path, force_apply=False):
+def _run_lucky_smartsync_to_reference(reference_path, target_path, force_apply=False, analysis=None):
   response = {
     'applied': False,
     'path': target_path,
     'persisted': False,
     'temp_paths': [],
+    'timing': 'unverified',
   }
   if not reference_path or not target_path:
     return response
   if reference_path.lower() == target_path.lower():
     return response
 
-  mismatch = _assess_subtitle_pair_mismatch(reference_path, target_path)
-  if not force_apply and not mismatch.get('likely_mismatch'):
-    _log('lucky smart sync skipped: mismatch not detected (ref=%s target=%s)' % (reference_path, target_path), LOG_INFO)
-    return response
-
   try:
-    local_result = _run_smart_sync_local(reference_path, target_path)
+    local_result = analysis if analysis is not None else _analyze_lucky_timing(reference_path, target_path)
+    if local_result.get('same_dialogue'):
+      response['timing'] = 'wrong_language'
+      return response
+    raw_sections = local_result.get('raw_sections', {})
+    response['preview_ms'] = raw_sections.get('preview_ms', 0)
+    if raw_sections:
+      if raw_sections['verified'] and not _lucky_correction_is_verified(local_result):
+        response['timing'] = 'aligned'
+        return response
+      if not _lucky_correction_is_verified(local_result):
+        return response
+      force_apply = True
+    if not (force_apply or local_result.get('fps_applied') or local_result.get('trimmed_opening_cues')
+            or _assess_subtitle_pair_mismatch(reference_path, target_path).get('likely_mismatch')):
+      if not local_result.get('low_confidence'):
+        response['timing'] = 'aligned'
+      _log('lucky smart sync skipped: mismatch not detected (ref=%s target=%s)' % (reference_path, target_path), LOG_INFO)
+      return response
     chosen_result = local_result
     if local_result.get('low_confidence'):
       _log(
@@ -5466,25 +5551,46 @@ def _run_lucky_smartsync_to_reference(reference_path, target_path, force_apply=F
       )
       try:
         ai_result = _run_smart_sync_ai(reference_path, target_path)
+      except JobCancelled:
+        raise
       except Exception as ai_exc:
         _log('lucky smart sync ai fallback failed: ref=%s target=%s error=%s' % (reference_path, target_path, ai_exc), LOG_WARNING)
         ai_result = None
-      if ai_result is None:
+      if ai_result is None or ai_result.get('low_confidence'):
         return response
       chosen_result = ai_result
 
-    sync_apply = _apply_synced_subtitle_to_target(target_path, chosen_result['synced_subs'])
+    sync_apply = _save_synced_subtitle_as_new_file(target_path, chosen_result['synced_subs'], automatic=True)
+  except JobCancelled:
+    raise
   except Exception as exc:
     _log('lucky smart sync failed: ref=%s target=%s error=%s' % (reference_path, target_path, exc), LOG_WARNING)
     return response
 
   response['applied'] = True
+  response['timing'] = 'synced'
   response['path'] = sync_apply.get('play_path') or target_path
   response['persisted'] = bool(sync_apply.get('persisted'))
   if sync_apply.get('temp_path'):
     response['temp_paths'].append(sync_apply.get('temp_path'))
   _log('lucky smart sync applied: ref=%s target=%s output=%s persisted=%s' % (reference_path, target_path, response['path'], response['persisted']), LOG_INFO)
   return response
+
+
+def _analyze_lucky_timing(reference_path, target_path):
+  progress = _create_smart_sync_progress()
+  try:
+    return _run_smart_sync_local(reference_path, target_path, progress=progress, prefer_simple_alignment=True)
+  finally:
+    _close_progress(progress)
+
+
+def _lucky_correction_is_verified(analysis):
+  raw = analysis.get('raw_sections', {})
+  corrected = analysis.get('synced_sections', {})
+  return (not analysis.get('low_confidence') and corrected.get('verified') and
+          (corrected['score'] >= raw.get('score', 0) + 0.04 or
+           analysis.get('trimmed_opening_cues') or analysis.get('edit_cut_ms') is not None))
 
 def _run_download_for_language(video_dir, video_basename, language_code, language_label=''):
   if not video_dir or not video_basename:
@@ -5780,7 +5886,9 @@ def _find_subtitle_matches(video_dir, video_basename, language_code, strict):
   if not video_dir or not video_basename or not language_code:
     return []
 
-  files = _get_action_video_context().list_directory_files(video_dir)
+  action_context = _get_action_video_context()
+  files = action_context.list_directory_files(video_dir)
+  check_russian = _canonicalize_language_code(language_code) == 'ru'
 
   matches = []
   seen = {}
@@ -5792,6 +5900,11 @@ def _find_subtitle_matches(video_dir, video_basename, language_code, strict):
       lower_key = full_path.lower()
       if lower_key not in seen:
         seen[lower_key] = True
+        if check_russian and _russian_subtitle_has_language_mismatch(
+            action_context.read_subtitle_sample(full_path, 512 * 1024, binary=True)
+        ):
+          _log('local subtitle skipped: expected Russian dialogue in %s' % full_path, LOG_WARNING)
+          continue
         matches.append(full_path)
 
   return matches
@@ -5929,7 +6042,7 @@ def _remember_last_used_dir(path):
   except Exception:
     pass
 
-def _prepare_and_merge_subtitles(subs):
+def _prepare_and_merge_subtitles(subs, preserve_timing=False):
   substemp = []
   merged_temp = ''
   try:
@@ -5940,7 +6053,7 @@ def _prepare_and_merge_subtitles(subs):
       if not xbmcvfs.copy(sub, subtemp):
         raise RuntimeError(__language__(33043))
       substemp.append(subtemp)
-    merged_temp = mergesubs(substemp)
+    merged_temp = mergesubs(substemp, preserve_timing=preserve_timing)
 
     if len(subs) > 1:
       merged_output = _build_merged_ass_output_path(subs[0])
@@ -6051,7 +6164,8 @@ def _finalize_selected_subtitle_paths(
   subtitle1_dir='',
   smart_sync_temp_files=None,
   show_notifications=True,
-  register_download_item=True
+  register_download_item=True,
+  preserve_timing=False
 ):
   if subtitle1 is None:
     return False
@@ -6069,7 +6183,7 @@ def _finalize_selected_subtitle_paths(
     subs.append(subtitle2)
 
   try:
-    finalfile = _prepare_and_merge_subtitles(subs)
+    finalfile = _prepare_and_merge_subtitles(subs, preserve_timing=preserve_timing)
   except Exception as exc:
     _log('subtitle merge failed: %s' % (exc), LOG_ERROR)
     if show_notifications:
@@ -6086,15 +6200,8 @@ def _finalize_selected_subtitle_paths(
 
   if len(subs) > 1:
     _enforce_dual_bottom_stack_visibility(finalfile)
-  if register_download_item:
-    Download(finalfile)
-  if not _apply_subtitle_to_player_now(finalfile):
-    # Retry once shortly after Kodi finishes plugin callback handling.
-    xbmc.sleep(250)
-    _apply_subtitle_to_player_now(finalfile)
-  if len(subs) > 1:
-    xbmc.sleep(180)
-    _refresh_active_subtitle_renderer(finalfile)
+  if not _activate_subtitle_for_playback(finalfile, register_download_item):
+    return False
   if show_notifications:
     if len(subs) > 1:
       _notify(__language__(33041), NOTIFY_INFO)
@@ -6271,7 +6378,10 @@ def _build_lucky_dual_result_summary(slots, english_preview_tested=False, englis
   if english_preview_tested:
     lines.append('English preview: %s' % ('Success' if english_preview_in_sync else 'Failed'))
   for slot in slots or []:
-    lines.append('%s subtitle: %s' % (_lucky_slot_label(slot), 'Success' if slot.get('path') else 'Failed'))
+    timing_labels = {'synced': 'Synchronized', 'aligned': 'Already aligned', 'confirmed': 'Timing confirmed',
+                     'unverified': 'Timing unverified'}
+    result = timing_labels.get(slot.get('timing'), 'Success') if slot.get('path') else 'Failed'
+    lines.append('%s subtitle: %s' % (_lucky_slot_label(slot), result))
   if smartsync_applied:
     lines.append('SmartSync: Success')
   lines.append('Lucky flow: %s' % ('Success' if overall_success else 'Failed'))
@@ -6370,24 +6480,36 @@ def _normalize_subtitle_preview_text(text):
   normalized = re.sub(r'\s+', ' ', normalized).strip()
   return normalized
 
-def _first_spoken_subtitle_start_ms(subtitle_path):
+def _is_non_dialogue_cue(text):
+  return (
+    not re.search(r'[^\W_]', text)
+    or bool(re.fullmatch(r'(?:\([^()]+\)\s*)+', text))
+    or bool(re.match(
+      r'^(?:[-–—]\s*)?(?:https?://|www\.|(?:addic7ed|opensubtitles)\.(?:com|org)\b'
+      r'|(?:subtitles?|sync(?:ed|hronized)?|translated|corrected|captions?)\s+by\b'
+      r'|sync\s*(?:&(?:amp;)?|and)\s*corrections\b|advertise\b.*\bhere\b'
+      r'|become\s+a\s+vip\s+member\b)',
+      text, re.IGNORECASE
+    ))
+  )
+
+def _subtitle_preview_start_ms(subtitle_path):
   local_copy = ''
+  dialogue_starts = []
   try:
     subtitle_data, local_copy = _load_subtitle_for_processing(subtitle_path)
     for event in getattr(subtitle_data, 'events', []):
+      if getattr(event, 'is_comment', False):
+        continue
       text = _normalize_subtitle_preview_text(getattr(event, 'text', ''))
-      if not text:
+      if _is_non_dialogue_cue(text):
         continue
-      # Skip non-spoken cues: music symbols, sound effects, and punctuation-only lines.
-      stripped = re.sub(r'[\u266a\u266b\u266c\u266d\u266e\u266f\u2669#*\-\s]', '', text)
-      if not stripped:
+      start = max(0, int(event.start))
+      if start in dialogue_starts:
         continue
-      if re.match(r'^[\W_]+$', text):
-        continue
-      try:
-        return int(max(0, getattr(event, 'start', 0)))
-      except Exception:
-        return 0
+      dialogue_starts.append(start)
+      if len(dialogue_starts) == 3:
+        break
   except Exception as exc:
     _log('lucky english preview parse failed: %s' % (exc), LOG_WARNING)
   finally:
@@ -6396,14 +6518,16 @@ def _first_spoken_subtitle_start_ms(subtitle_path):
         xbmcvfs.delete(local_copy)
     except Exception:
       pass
-  return 0
+  return dialogue_starts[-1] if dialogue_starts else 0
 
 def _capture_lucky_preview_state():
   state = {
     'valid': False,
     'play_time_seconds': 0.0,
     'subtitle_path': '',
+    'subtitle_index': None,
     'subtitle_visible': None,
+    'paused': None,
     'was_fullscreen_video': False,
   }
 
@@ -6431,6 +6555,15 @@ def _capture_lucky_preview_state():
     state['subtitle_visible'] = bool(xbmc.getCondVisibility('VideoPlayer.SubtitlesEnabled'))
   except Exception:
     state['subtitle_visible'] = None
+  try:
+    state['paused'] = bool(xbmc.getCondVisibility('Player.Paused'))
+    request = {'jsonrpc': '2.0', 'id': 1, 'method': 'Player.GetProperties',
+               'params': {'playerid': 1, 'properties': ['currentsubtitle']}}
+    selected = json.loads(xbmc.executeJSONRPC(json.dumps(request)))['result']['currentsubtitle']
+    if selected and selected['index'] >= 0:
+      state['subtitle_index'] = selected['index']
+  except Exception:
+    pass
 
   try:
     state['was_fullscreen_video'] = bool(xbmc.getCondVisibility('Window.IsActive(fullscreenvideo)'))
@@ -6464,11 +6597,19 @@ def _restore_lucky_preview_state(state):
       _log('lucky english preview restore seek failed: %s' % (exc), LOG_WARNING)
 
   subtitle_path = _as_text(state.get('subtitle_path', '')).strip()
-  if subtitle_path and xbmcvfs.exists(subtitle_path):
-    try:
+  try:
+    if state.get('subtitle_index') is not None:
+      player.setSubtitleStream(state['subtitle_index'])
+    elif subtitle_path and xbmcvfs.exists(subtitle_path):
       player.setSubtitles(subtitle_path)
-    except Exception as exc:
-      _log('lucky english preview restore subtitles failed: %s' % (exc), LOG_WARNING)
+  except Exception as exc:
+    _log('lucky preview restore subtitles failed: %s' % (exc), LOG_WARNING)
+
+  try:
+    if state.get('paused') is not None and bool(xbmc.getCondVisibility('Player.Paused')) != state['paused']:
+      player.pause()
+  except Exception:
+    pass
 
   subtitle_visible = state.get('subtitle_visible')
   if subtitle_visible is not None:
@@ -6490,7 +6631,7 @@ def _restore_lucky_preview_state(state):
     except Exception as exc:
       _log('lucky english preview restore fullscreen state failed: %s' % (exc), LOG_WARNING)
 
-def _run_lucky_english_sync_preview(english_reference_path):
+def _run_lucky_english_sync_preview(english_reference_path, start_ms=None):
   result = {
     'started': False,
     'state': {},
@@ -6507,13 +6648,20 @@ def _run_lucky_english_sync_preview(english_reference_path):
 
   result['state'] = _capture_lucky_preview_state()
 
-  first_start_ms = _first_spoken_subtitle_start_ms(english_reference_path)
-  seek_seconds = max(0.0, (float(first_start_ms) / 1000.0) - 1.0)
+  preview_start_ms = _subtitle_preview_start_ms(english_reference_path) if start_ms is None else start_ms
+  if start_ms is not None:
+    try:
+      if preview_start_ms >= player.getTotalTime() * 1000:
+        return result
+    except RuntimeError:
+      return result
+  seek_seconds = max(0.0, (float(preview_start_ms) / 1000.0) - 1.0)
 
   try:
     player.setSubtitles(english_reference_path)
   except Exception as exc:
-    _log('lucky english preview setSubtitles failed: %s' % (exc), LOG_WARNING)
+    _log('lucky preview setSubtitles failed: %s' % (exc), LOG_WARNING)
+    return result
 
   try:
     player.showSubtitles(True)
@@ -6522,8 +6670,11 @@ def _run_lucky_english_sync_preview(english_reference_path):
 
   try:
     player.seekTime(seek_seconds)
+    if result['state'].get('paused'):
+      player.pause()
   except Exception as exc:
-    _log('lucky english preview seek failed: %s' % (exc), LOG_WARNING)
+    _log('lucky preview seek failed: %s' % (exc), LOG_WARNING)
+    _restore_lucky_preview_state(result['state'])
     return result
 
   result['started'] = True
@@ -6695,6 +6846,8 @@ def _run_lucky_translate_missing_slots(
       try:
         translated_path = _translate_subtitle_file(source_subtitle, source_language_code, slot['code'])
         slot['path'] = translated_path
+        slot['source_path'] = translated_path
+        slot['timing'] = 'aligned' if source_subtitle == english_reference_path else 'unverified'
         slot['origin'] = 'translated'
         if notify:
           _notify(__language__(33243) % (slot['label'], source_label), NOTIFY_INFO, timeout=3500)
@@ -6735,16 +6888,12 @@ def _finalize_lucky_single_display(subtitle_path, video_dir, smart_sync_temp_fil
   if not subtitle_path:
     return False
   _remember_last_used_dir(os.path.dirname(subtitle_path) or video_dir)
-  Download(subtitle_path)
-  if not _apply_subtitle_to_player_now(subtitle_path):
-    xbmc.sleep(250)
-    _apply_subtitle_to_player_now(subtitle_path)
   # A playback-only SmartSync target may itself be a temporary file. Keep it
   # alive for Kodi instead of deleting it as the dual merge path does.
-  return True
+  return _activate_subtitle_for_playback(subtitle_path)
 
-def _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_temp_files):
-  """Merge and activate two acquired subtitles; dualsubs remains untouched."""
+def _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_temp_files, preserve_timing=False):
+  """Merge and activate two acquired subtitles."""
   subtitle_dir = os.path.dirname(subtitle1) if subtitle1 else video_dir
   return _finalize_selected_subtitle_paths(
     subtitle1,
@@ -6752,8 +6901,78 @@ def _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_tem
     subtitle1_dir=subtitle_dir,
     smart_sync_temp_files=smart_sync_temp_files,
     show_notifications=False,
-    register_download_item=True
+    register_download_item=True,
+    preserve_timing=preserve_timing
   )
+
+def _lucky_cache_file(slots):
+  key = [_current_video_file_path(), [slot['code'] for slot in slots]]
+  return os.path.join(__profile__, 'lucky', hashlib.sha256(json.dumps(key).encode()).hexdigest() + '.json')
+
+
+def _lucky_cache_signature(reference_path, sources, outputs):
+  video = _current_video_file_path()
+  media_hash, size = _compute_file_hash_and_size(video)
+  if not media_hash or not all([reference_path] + sources + outputs):
+    return None
+  try:
+    files = {}
+    for path in dict.fromkeys([reference_path] + sources + outputs):
+      stat = xbmcvfs.Stat(path)
+      if not 0 < stat.st_size() <= 5 * 1024 * 1024:
+        return None
+      handle = xbmcvfs.File(path)
+      try:
+        data = bytes(handle.readBytes(stat.st_size()))
+      finally:
+        handle.close()
+      if len(data) != stat.st_size():
+        return None
+      files[path] = hashlib.sha256(data).hexdigest()
+    return [1, video, media_hash, size, xbmcvfs.Stat(video).st_mtime(),
+            _is_smart_sync_frame_rate_correction_enabled(), files]
+  except Exception:
+    return None
+
+
+def _load_lucky_timing_cache(slots, reference_path):
+  try:
+    with open(_lucky_cache_file(slots), encoding='utf-8') as handle:
+      saved = json.load(handle)
+    sources = [slot.get('path') for slot in slots]
+    outputs = saved['outputs']
+    if (saved['reference'] == reference_path and saved['sources'] == sources and
+        len(outputs) == len(sources) and saved['signature'] and
+        saved['signature'] == _lucky_cache_signature(reference_path, sources, outputs)):
+      return outputs
+  except (OSError, ValueError, KeyError, TypeError):
+    pass
+  return None
+
+
+def _save_lucky_timing_cache(slots, reference_path):
+  sources = [slot.get('source_path') or slot['path'] for slot in slots]
+  outputs = [slot['path'] for slot in slots]
+  if any(slot.get('timing') not in ('aligned', 'synced', 'confirmed') for slot in slots):
+    return
+  if any(_is_generated_subtitle_name(path) and not path.lower().endswith('.smartsync.srt') for path in outputs):
+    return
+  signature = _lucky_cache_signature(reference_path, sources, outputs)
+  if signature is None:
+    return
+  path = _lucky_cache_file(slots)
+  temp_path = '%s.%s.tmp' % (path, uuid.uuid4())
+  try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(temp_path, 'w', encoding='utf-8') as handle:
+      json.dump({'sources': sources, 'outputs': outputs, 'reference': reference_path, 'signature': signature}, handle)
+    os.replace(temp_path, path)
+  except OSError as exc:
+    _log('lucky timing cache write failed: %s' % exc, LOG_WARNING)
+  finally:
+    if os.path.exists(temp_path):
+      os.remove(temp_path)
+
 
 def _run_lucky_acquisition(slots):
   global LUCKY_FLOW_ACTIVE
@@ -6806,10 +7025,66 @@ def _run_lucky_acquisition(slots):
       raise RuntimeError(lucky_cancel_token)
     _check_search_timeout()
 
-  def _attempt_download_for_slot(slot, required_tiers, fallback_to_top, percent, status_label, delay_seconds):
+  def _sync_slot(slot, percent, force_apply=False):
+    nonlocal progress, smartsync_applied_any
+    _step(percent, __language__(33262) % (slot['label']))
+    _close_progress(progress)
+    progress = None
+    slot['source_path'] = slot['path']
+    analysis = slot.pop('analysis', None)
+    try:
+      if analysis is None:
+        sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, slot['path'], force_apply=force_apply)
+      else:
+        sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, slot['path'], analysis=analysis)
+    except JobCancelled:
+      raise RuntimeError(lucky_cancel_token)
+    progress = _create_lucky_progress()
+    slot['timing'] = sync_apply.get('timing')
+    slot['preview_ms'] = sync_apply.get('preview_ms', 0)
+    if sync_apply.get('applied'):
+      slot['path'] = sync_apply.get('path') or slot['path']
+      slot['origin'] = 'smartsync'
+      smartsync_applied_any = True
+      smart_sync_temp_files.extend(sync_apply.get('temp_paths', []))
+
+  def _confirm_uncertain_slot(slot):
+    nonlocal progress
+    if not slot.get('path') or slot.get('timing') not in ('unverified', 'wrong_language'):
+      return
+    if slot.get('timing') == 'unverified' and slot.get('preview_ms') and _is_lucky_prompt_english_test_enabled():
+      _close_progress(progress)
+      progress = None
+      preview = _run_lucky_english_sync_preview(slot['path'], start_ms=slot['preview_ms'])
+      if preview.get('started'):
+        _log('lucky timing preview started: language=%s position_ms=%s' %
+             (slot['code'], slot['preview_ms']), LOG_INFO)
+        try:
+          _let_lucky_preview_play(5000)
+          choice = __msg_box__.select(
+            'Does the %s subtitle timing look correct here?' % slot['label'],
+            [__language__(33271), __language__(33273), __language__(33133)]
+          )
+        finally:
+          _restore_lucky_preview_state(preview.get('state'))
+        _log('lucky timing preview decision: language=%s choice=%s' % (slot['code'], choice), LOG_INFO)
+        if choice in (-1, 2):
+          raise RuntimeError(lucky_cancel_token)
+        if choice == 0:
+          slot['timing'] = 'confirmed'
+      progress = _create_lucky_progress()
+    if slot.get('timing') != 'confirmed':
+      slot['path'] = ''
+      slot['origin'] = 'missing'
+
+  def _attempt_download_for_slot(slot, required_tiers, fallback_to_top, percent, status_label, delay_seconds,
+                                 validate_candidate=None, deadline_at=None):
     def _progress_line(message):
       _step(percent, status_label, message)
 
+    excluded_candidates = set(slot.get('rejected_candidates', ()))
+    if slot.get('candidate'):
+      excluded_candidates.add(slot['candidate'])
     result = _download_best_result_for_language(
       video_dir,
       video_basename,
@@ -6820,17 +7095,21 @@ def _run_lucky_acquisition(slots):
       notify_errors=False,
       max_write_attempts=8,
       request_delay_seconds=delay_seconds,
-      max_provider_attempts=2,
+      max_provider_attempts=4 if validate_candidate else 2,
       retry_delay_seconds=0.95,
       progress_callback=_progress_line,
       progress_label=slot['label'],
-      deadline_at=search_phase_deadline_at
+      deadline_at=deadline_at or search_phase_deadline_at,
+      validate_candidate=validate_candidate,
+      excluded_candidates=excluded_candidates
     )
+    slot.setdefault('rejected_candidates', set()).update(result.get('rejected_candidates', ()))
     path = result.get('path')
     if not path:
       return False
     slot['path'] = path
     selected_result = result.get('result') or {}
+    slot['candidate'] = (selected_result.get('provider_key'), selected_result.get('file_id'))
     sync_tier = _as_text(selected_result.get('sync_tier', 'unknown')).lower()
     if sync_tier not in ['exact', 'likely', 'unknown']:
       sync_tier = 'unknown'
@@ -6860,6 +7139,18 @@ def _run_lucky_acquisition(slots):
         slots[1]['origin'] = 'local_exact'
         _status('%s: local subtitle found (%s).' % (slots[1]['label'], os.path.basename(automatch.get('subtitle2'))))
 
+    if _is_lucky_smartsync_enabled() and not _lucky_missing_slots(slots) and _current_video_file_path():
+      cached_reference = _pick_best_exact_local_language_match(video_dir, video_basename, 'en')
+      if not cached_reference and _is_lucky_allow_english_likely():
+        cached_reference = _pick_best_local_likely_language_match(video_dir, video_basename, 'en')
+      cached_paths = _load_lucky_timing_cache(slots, cached_reference) if cached_reference else None
+      if cached_paths:
+        finalized = (_finalize_lucky_single_display(cached_paths[0], video_dir, []) if len(slots) == 1 else
+                     _finalize_lucky_dual_display(*cached_paths, video_dir, [], preserve_timing=True))
+        if finalized:
+          _log('lucky reused verified timing: %s' % video_basename, LOG_INFO)
+          return
+
     download_request_delay_seconds = 0.0
     if _is_lucky_download_enabled():
       for slot in _lucky_missing_slots(slots):
@@ -6883,7 +7174,10 @@ def _run_lucky_acquisition(slots):
     english_reference_path = ''
     english_reference_tier = ''
     rejected_english_reference_path = ''
-    needs_english_reference = len(_lucky_missing_slots(slots)) > 0
+    needs_english_reference = bool(_lucky_missing_slots(slots)) or (
+      _is_lucky_smartsync_enabled() and
+      any(_canonicalize_language_code(slot.get('code', '')) != 'en' for slot in slots)
+    )
 
     if needs_english_reference:
       _step(42, __language__(33261))
@@ -6910,18 +7204,13 @@ def _run_lucky_acquisition(slots):
         _status('No reliable English reference found.')
         _step(52, __language__(33246))
 
-    # NOTE: Redundant second download attempt removed — same tiers/params as
-    # the first attempt would not yield new results.  Unknown-tier candidates
-    # are collected later in the flow and offered to the user explicitly.
+    # Interactive previews and timing analysis have their own cancellation.
+    search_phase_timeout_active = False
 
     can_use_reference_for_sync = english_reference_tier in ['exact', 'likely']
     should_test_english_reference = False
-    if english_reference_path and _is_lucky_prompt_english_test_enabled() and _is_lucky_strict_english_preview_enabled():
-      try:
-        prompt_message = '%s[CR][CR]%s' % (__language__(33249), __language__(33250))
-        should_test_english_reference = __msg_box__.yesno(__language__(33230), prompt_message)
-      except Exception:
-        should_test_english_reference = False
+    if english_reference_path and english_reference_tier == 'likely':
+      should_test_english_reference = _is_lucky_prompt_english_test_enabled() and _is_lucky_strict_english_preview_enabled()
 
     if should_test_english_reference and english_reference_path and can_use_reference_for_sync:
       _close_progress(progress)
@@ -6969,22 +7258,53 @@ def _run_lucky_acquisition(slots):
         if not slot_path:
           continue
         if slot_path.lower() == english_reference_path.lower():
+          slot['timing'] = 'aligned'
           continue
-        _step(72, __language__(33262) % (slot['label']))
-        force_sync_apply = bool(english_preview_confirmed_sync)
-        sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, slot_path, force_apply=force_sync_apply)
-        if not sync_apply.get('applied'):
-          _status('%s: SmartSync skipped (already close enough / no mismatch detected).' % (slot['label']))
+        if _canonicalize_language_code(slot.get('code', '')) == 'en':
           continue
-        slot['path'] = sync_apply.get('path') or slot_path
-        slot['origin'] = 'smartsync'
-        smartsync_applied_any = True
-        for temp_path in sync_apply.get('temp_paths', []):
-          smart_sync_temp_files.append(temp_path)
-        _status('%s: SmartSync applied using English reference.' % (slot['label']))
+        _sync_slot(slot, 72, force_apply=english_preview_confirmed_sync)
+
+    if _is_lucky_smartsync_enabled() and english_reference_path and can_use_reference_for_sync:
+      search_phase_timeout_active = False
+      for slot in slots:
+        if _canonicalize_language_code(slot.get('code', '')) == 'en':
+          continue
+        if slot.get('path') and slot.get('timing') not in ('unverified', 'wrong_language'):
+          continue
+        if _is_lucky_download_enabled():
+          def validate_alternative(path):
+            nonlocal progress
+            _close_progress(progress)
+            progress = None
+            try:
+              analysis = _analyze_lucky_timing(english_reference_path, path)
+            finally:
+              progress = _create_lucky_progress()
+            if analysis.get('same_dialogue'):
+              return False
+            if analysis.get('raw_sections', {}).get('verified') or _lucky_correction_is_verified(analysis):
+              slot['analysis'] = analysis
+              return True
+            return False
+
+          try:
+            found = _attempt_download_for_slot(
+              slot, ['exact', 'likely', 'unknown'], True, 76, 'Trying another %s subtitle' % slot['label'], 0,
+              validate_candidate=validate_alternative, deadline_at=LuckyDeadline(search_phase_timeout_seconds).deadline_at
+            )
+          except JobCancelled:
+            raise RuntimeError(lucky_cancel_token)
+          except RuntimeError as exc:
+            if _as_text(exc) != lucky_timeout_token:
+              raise
+            found = False
+          if found:
+            _sync_slot(slot, 78)
+        _confirm_uncertain_slot(slot)
 
     unknown_candidates_by_slot = {}
     if len(_lucky_missing_slots(slots)) > 0 and _is_lucky_download_enabled():
+      fallback_deadline_at = LuckyDeadline(search_phase_timeout_seconds).deadline_at
       for missing_slot in _lucky_missing_slots(slots):
         slot_key = _as_text(missing_slot.get('slot', missing_slot.get('code', ''))).strip() or missing_slot.get('code', '')
         unknown_candidates = _collect_lucky_unknown_candidates(
@@ -6992,8 +7312,11 @@ def _run_lucky_acquisition(slots):
           video_basename,
           missing_slot.get('code', ''),
           max_candidates=3,
-          deadline_at=search_phase_deadline_at
+          deadline_at=fallback_deadline_at
         )
+        rejected = missing_slot.get('rejected_candidates', set())
+        unknown_candidates = [candidate for candidate in unknown_candidates
+                              if (candidate.get('provider_key'), candidate.get('file_id')) not in rejected]
         unknown_candidates_by_slot[slot_key] = unknown_candidates
         _log(
           'lucky dual unknown fallback candidates: language=%s count=%d'
@@ -7031,6 +7354,7 @@ def _run_lucky_acquisition(slots):
           if ai_slot.get('path') and _as_text(ai_slot.get('origin', '')).lower() == 'translated':
             _status('%s: generated via AI translation from English reference.' % (ai_slot.get('label', ai_slot.get('code', 'target'))))
 
+    rejected_language_slots = []
     if len(_lucky_missing_slots(slots)) > 0 and _is_lucky_download_enabled():
       _step(88, __language__(33260))
       _close_progress(progress)
@@ -7038,35 +7362,39 @@ def _run_lucky_acquisition(slots):
 
       for slot in _lucky_missing_slots(slots):
         slot_key = _as_text(slot.get('slot', slot.get('code', ''))).strip() or slot.get('code', '')
-        unknown_candidates = unknown_candidates_by_slot.get(slot_key, [])
-        if len(unknown_candidates) == 0:
-          continue
+        remaining = list(unknown_candidates_by_slot.get(slot_key, []))
+        risky_path = ''
+        while remaining:
+          _close_progress(progress)
+          progress = None
+          risky_candidate = _prompt_lucky_unknown_candidate(slot['label'], remaining, video_basename)
+          if not risky_candidate:
+            _log('lucky user skipped risky candidates for %s' % (slot.get('code', 'target')), LOG_WARNING)
+            break
 
-        # Ensure the risky-candidate picker is never shown with a stale progress
-        # dialog still open from the previous language iteration.
-        _close_progress(progress)
-        progress = None
-
-        risky_candidate = _prompt_lucky_unknown_candidate(
-          slot.get('label', slot.get('code', '')),
-          unknown_candidates,
-          video_basename
-        )
-        if not risky_candidate:
-          _log('lucky user skipped risky candidates for %s' % (slot.get('code', 'target')), LOG_WARNING)
-          _status(__language__(33303) % (slot['label']))
           progress = _create_lucky_progress()
-          _step(89, __language__(33265), __language__(33303) % (slot['label']))
-          continue
-
-        progress = _create_lucky_progress()
-        _step(89, __language__(33265), 'Downloading selected %s subtitle...' % (slot['label']))
-        risky_path = _download_lucky_selected_candidate(
-          video_dir, video_basename, slot, risky_candidate, deadline_at=search_phase_deadline_at
-        )
+          _step(89, __language__(33265), 'Downloading selected %s subtitle...' % (slot['label']))
+          try:
+            risky_path = _download_lucky_selected_candidate(
+              video_dir, video_basename, slot, risky_candidate,
+              deadline_at=LuckyDeadline(search_phase_timeout_seconds).deadline_at
+            )
+          except SubtitleLanguageMismatch as exc:
+            remaining = [candidate for candidate in remaining
+                         if (candidate.get('provider_key'), candidate.get('file_id')) !=
+                            (risky_candidate.get('provider_key'), risky_candidate.get('file_id'))]
+            if slot not in rejected_language_slots:
+              rejected_language_slots.append(slot)
+            _close_progress(progress)
+            progress = None
+            _notify(_as_text(exc), NOTIFY_WARNING)
+            _log('lucky risky candidate rejected: release=%s error=%s' %
+                 (risky_candidate.get('release_name', ''), exc), LOG_WARNING)
+            continue
+          if not risky_path:
+            _step(90, __language__(33265), __language__(33301) % (slot['label']))
+          break
         if not risky_path:
-          _status(__language__(33301) % (slot['label']))
-          _step(90, __language__(33265), __language__(33301) % (slot['label']))
           continue
 
         slot['path'] = risky_path
@@ -7086,22 +7414,22 @@ def _run_lucky_acquisition(slots):
 
         if _is_lucky_smartsync_enabled() and english_reference_path and can_use_reference_for_sync and risky_path.lower() != english_reference_path.lower():
           _log('lucky dual smartsync start for %s using reference=%s target=%s' % (slot.get('label', slot.get('code', 'target')), english_reference_path, risky_path), LOG_INFO)
-          _step(91, __language__(33262) % (slot['label']), 'Running SmartSync for %s...' % (slot['label']))
-          sync_apply = _run_lucky_smartsync_to_reference(english_reference_path, risky_path, force_apply=True)
-          if not sync_apply.get('applied'):
-            _status('%s: SmartSync skipped after risky selection.' % (slot['label']))
-            _step(92, __language__(33262) % (slot['label']), 'SmartSync skipped')
-            continue
-          slot['path'] = sync_apply.get('path') or risky_path
-          slot['origin'] = 'smartsync'
-          smartsync_applied_any = True
-          for temp_path in sync_apply.get('temp_paths', []):
-            smart_sync_temp_files.append(temp_path)
-          _status('%s: SmartSync applied after risky selection.' % (slot['label']))
-          _step(92, __language__(33244) % (slot['label']), 'SmartSync applied')
+          _sync_slot(slot, 91, force_apply=True)
+          _confirm_uncertain_slot(slot)
 
-      progress = _create_lucky_progress()
+      if progress is None:
+        progress = _create_lucky_progress()
       _step(90, __language__(33265))
+
+    if _lucky_missing_slots(rejected_language_slots) and _is_lucky_ai_translate_enabled():
+      _close_progress(progress)
+      progress = None
+      _run_lucky_translate_missing_slots(
+        rejected_language_slots, video_dir, video_basename, english_reference_path,
+        exclude_source_paths=[rejected_english_reference_path] if rejected_english_reference_path else None,
+        require_english_source=True
+      )
+      progress = _create_lucky_progress()
 
     _step(94, __language__(33265))
     subtitle1 = slots[0].get('path')
@@ -7141,9 +7469,14 @@ def _run_lucky_acquisition(slots):
     if len(slots) == 1:
       finalized = _finalize_lucky_single_display(subtitle1, video_dir, smart_sync_temp_files)
     else:
-      finalized = _finalize_lucky_dual_display(subtitle1, subtitle2, video_dir, smart_sync_temp_files)
+      finalized = _finalize_lucky_dual_display(
+        subtitle1, subtitle2, video_dir, smart_sync_temp_files,
+        preserve_timing=bool(_is_lucky_smartsync_enabled() and english_reference_path and can_use_reference_for_sync)
+      )
 
     if finalized:
+      if can_use_reference_for_sync and (english_reference_tier == 'exact' or english_preview_confirmed_sync):
+        _save_lucky_timing_cache(slots, english_reference_path)
       _status((__language__(33280) % (_lucky_slot_label(slots[0]))) if len(slots) == 1 else __language__(33238))
       _close_progress(progress)
       progress = None

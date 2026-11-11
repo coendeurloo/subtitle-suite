@@ -114,6 +114,19 @@ class ServiceSearchTests(unittest.TestCase):
         self.assertIs(ranked[0], hash_match)
         self.assertFalse(hash_match['hard_conflict'])
 
+    def test_episode_search_rejects_same_episode_number_from_another_series(self):
+        provider = OpenSubtitlesProvider({'enabled': True})
+        context = {'is_tvshow': True, 'season': '02', 'episode': '07', 'parent_imdb_id': 'tt1234567'}
+        def result(file_id, show_id):
+            return {'attributes': {'language': 'nl', 'feature_details': {
+                'season_number': 2, 'episode_number': 7, 'parent_imdb_id': show_id,
+            }, 'files': [{'file_id': file_id, 'file_name': 'Episode.srt'}]}}
+
+        matches = provider._normalize_search_results(
+            [result(1, 9999999), result(2, 1234567), result(3, None)], context, 'nl'
+        )
+        self.assertEqual([match['file_id'] for match in matches], [2, 3])
+
     def test_full_candidate_pool_ranked_before_display_limit_and_cache_is_specific(self):
         provider = OpenSubtitlesProvider({'enabled': True})
         pool = [dict(file_id=i, language='nl', release_name='Example.Movie.2024',

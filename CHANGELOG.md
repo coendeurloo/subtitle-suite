@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.9.27 — 2026-11-11
+
+- **I Feel Lucky is quicker.** It checks subtitles you already have, skips the long scan when a track clearly lines up, and remembers combinations that worked. It checks again if the video or any of the subtitle files change.
+- **Better timing across the whole episode.** SmartSync checks the beginning, middle, and end. It can fix subtitles that gradually drift, adjust timing at a clear edit, and remove an extra recap when the rest of the episode lines up.
+- **Better subtitle choices.** Lucky uses the series ID when available and can try another download if a track does not fit. It also rejects tracks labelled Russian that contain a large amount of dialogue in another language.
+- **More useful previews.** The opening preview skips common credits and adverts. When timing is uncertain, Lucky shows the part that needs checking.
+- **Progress and originals.** Automatic sync shows its progress and can be cancelled. It saves the corrected version separately so a new attempt can start from the original.
+- **Smoother dual subtitle playback.** Kodi loads the combined track once, so its subtitle delay control can move both languages together.
+
 ## 2.9.26 — 2026-10-11
 
 - Subtitle searches now hide results for other movies. OpenSubtitles can return unrelated films that share a year or words in the title.

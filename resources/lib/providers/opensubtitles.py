@@ -341,6 +341,10 @@ class OpenSubtitlesProvider(SubtitleProviderBase):
                             wrong_episode = True
                 if wrong_episode:
                     continue
+                expected_series = self._feature_imdb_number(context.get('parent_imdb_id'))
+                actual_series = self._feature_imdb_number(feature.get('parent_imdb_id'))
+                if expected_series and actual_series and expected_series != actual_series:
+                    continue
             downloads = _to_int(attributes.get('download_count'))
             ratings = _to_float(attributes.get('ratings'))
             hash_match = hash_lookup and self._flag(attributes.get('moviehash_match'))
